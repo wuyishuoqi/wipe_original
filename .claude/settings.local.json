@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip install *)",
+      "Bash(python -c \"import tqdm; print\\(tqdm.__file__\\)\")",
+      "Bash(nvidia-smi)",
+      "Bash(kill -9 858464)",
+      "Bash(nvidia-smi --query-compute-apps=pid,used_memory --format=csv,noheader)",
+      "Bash(nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv,noheader)",
+      "Bash(nvidia-smi --query-gpu=utilization.gpu,utilization.memory,temperature.gpu --format=csv,noheader)"
+    ]
+  }
+}
