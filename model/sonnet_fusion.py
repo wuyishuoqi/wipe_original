@@ -263,6 +263,30 @@ class SonnetFusion(nn.Module):
 
     # Post-fusion normalization
     self.bn = nn.BatchNorm2d(channels)
+    self.residual_scale = nn.Parameter(torch.tensor(0.1))
+
+  def _load_from_state_dict(
+    self,
+    state_dict,
+    prefix,
+    local_metadata,
+    strict,
+    missing_keys,
+    unexpected_keys,
+    error_msgs,
+  ):
+    key = prefix + "residual_scale"
+    if key not in state_dict:
+      state_dict[key] = self.residual_scale.detach().clone()
+    super()._load_from_state_dict(
+      state_dict,
+      prefix,
+      local_metadata,
+      strict,
+      missing_keys,
+      unexpected_keys,
+      error_msgs,
+    )
 
   def forward(self, x: torch.Tensor):
     """Fuse 3-antenna features via Sonnet pipeline.
@@ -273,6 +297,7 @@ class SonnetFusion(nn.Module):
     Returns:
         out: [B, C, H, W_ant*3] fused features
     """
+    residual = x
     B, C, H, W = x.shape
     W_ant = self.antenna_width
 
@@ -291,5 +316,6 @@ class SonnetFusion(nn.Module):
 
     # Concatenate antennas along width
     out = torch.cat(outputs, dim=3)  # [B, C, H, W_ant*3]
+    out = residual + self.residual_scale * out
     out = self.bn(out)
     return out

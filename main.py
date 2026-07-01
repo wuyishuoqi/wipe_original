@@ -13,21 +13,59 @@ trianConfList: list[config.Train] = [
 ]
 valConfList: list[config.Val] = [config.Val()]
 inferConfList: list[config.Infer] = [
-  config.Infer(
-    model="Evtformer",
-    fusion="none",
-    weightsFile=r"out/train/model/Evtformer/6/epoch-19/weights.pt",
-    outDir="infer/best",
-  )
+  # ===== 当前活跃 =====
   # config.Infer(
   #   model="Evtformer",
-  #   weightsFile=r"out/train/model/Evtformer/0/epoch-19/weights.pt",
-  #   outDir="infer/best",
-  # )
+  #   fusion="none",
+  #   weightsFile=r"out/train/model/Evtformer/7/epoch-19/weights.pt",
+  #   outDir="infer/evt-v8-desk-chair",
+  # ),
+
+  # ===== Wpformer =====
   # config.Infer(
-  #   datasetDir="/root/docker/data/CSI with frames (2023-11)/parsed/block-small",
-  #   outDir="infer/block",
-  # )
+  #   model="Wpformer", fusion="none",
+  #   weightsFile=r"out/train/model/Wpformer/0/epoch-19/weights.pt",
+  #   outDir="infer/wpformer-desk-chair",
+  # ),
+  # config.Infer(
+  #   model="Wpformer", fusion="none",
+  #   weightsFile=r"out/train/model/Wpformer/1/epoch-19/weights.pt",
+  #   outDir="infer/wpformer-noostruct",
+  # ),
+  # config.Infer(
+  #   model="Wpformer", fusion="none",
+  #   weightsFile=r"out/train/model/Wpformer/2/epoch-19/weights.pt",
+  #   outDir="infer/wpformer-obstacle",
+  # ),
+
+  # ===== Evtformer =====
+  # config.Infer(
+  #   model="Evtformer", fusion="none",
+  #   weightsFile=r"out/train/model/Evtformer/0/epoch-19/weights.pt",
+  #   outDir="infer/evt-v1-desk-chair",
+  # ),
+  config.Infer(
+    model="Evtformer", fusion="none",
+    weightsFile=r"out/train/model/Evtformer/1/epoch-19/weights.pt",
+    outDir="infer/evt-v4-noostruct",
+  ),
+  # config.Infer(
+  #   model="Evtformer", fusion="none",
+  #   weightsFile=r"out/train/model/Evtformer/5/epoch-19/weights.pt",
+  #   outDir="infer/evt-v7-desk-chair",
+  # ),
+
+  # ===== Wisppn =====
+  # config.Infer(
+  #   model="Wisppn", fusion="none",
+  #   weightsFile=r"out/train/model/Wisppn/0/epoch-19/weights.pt",
+  #   outDir="infer/wisppn-desk-chair",
+  # ),
+  # config.Infer(
+  #   model="Wisppn", fusion="none",
+  #   weightsFile=r"out/train/model/Wisppn/1/epoch-19/weights.pt",
+  #   outDir="infer/wisppn-obstacle",
+  # ),
 ]
 
 # for i in range(2, 3):
@@ -67,7 +105,7 @@ inferConfList: list[config.Infer] = [
 #     )
 #   )
 
-for i in range(6, 7):
+for i in range(7, 8):
   model = "Evtformer"
   trianConfList.append(
     config.Train(

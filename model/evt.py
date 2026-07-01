@@ -40,6 +40,7 @@ class EVTSpatialAttention(nn.Module):
 
     # Learnable spatial decay rate
     self.gamma = nn.Parameter(torch.tensor(gamma_init))
+    self._decay_cache = {}
 
     # Multi-head QKV projection
     self.qkv = nn.Linear(channels, channels * 3, bias=False)
@@ -64,12 +65,14 @@ class EVTSpatialAttention(nn.Module):
     """Build Euclidean distance-based spatial decay matrix.
 
     For each pair of spatial positions (i, j), compute:
-        S_ij = exp(-|gamma| * ||pos_i - pos_j||_2)
+        D_ij = ||pos_i - pos_j||_2
 
     Returns:
-        S: [N, N] where N = H * W
+        D: [N, N] where N = H * W
     """
-    N = H * W
+    cache_key = (H, W, device, dtype)
+    if cache_key in self._decay_cache:
+      return self._decay_cache[cache_key]
 
     # Build coordinate grid
     y = torch.arange(H, device=device, dtype=dtype)
@@ -83,10 +86,8 @@ class EVTSpatialAttention(nn.Module):
     coords_j = coords.unsqueeze(0)  # [1, N, 2]
     D = torch.sqrt(((coords_i - coords_j) ** 2).sum(dim=-1) + 1e-8)  # [N, N]
 
-    # Spatial decay: closer → higher attention bias
-    gamma = torch.abs(self.gamma)
-    S = torch.exp(-gamma * D)  # [N, N]
-    return S
+    self._decay_cache[cache_key] = D
+    return D
 
   def forward(self, x: torch.Tensor) -> torch.Tensor:
     """Apply EVT spatial prior attention.
@@ -119,8 +120,8 @@ class EVTSpatialAttention(nn.Module):
     attn = (q @ k.transpose(-2, -1)) / self.scale  # [B, num_heads, N, N]
 
     # ---- Inject Euclidean spatial prior ----
-    S = self._build_spatial_decay(H, W, x.device, x.dtype)  # [N, N]
-    spatial_bias = torch.log(S + 1e-8)  # log(S_ij), additive in softmax
+    D = self._build_spatial_decay(H, W, x.device, x.dtype)  # [N, N]
+    spatial_bias = -torch.abs(self.gamma) * D
     attn = attn + spatial_bias.unsqueeze(0).unsqueeze(0)  # [B, num_heads, N, N]
 
     attn = attn.softmax(dim=-1)

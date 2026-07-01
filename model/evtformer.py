@@ -18,6 +18,10 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torchvision
+try:
+  from torchvision.models import ResNet34_Weights
+except ImportError:
+  ResNet34_Weights = None
 
 from model.dual_token import TimeFreqDualToken
 from model.sonnet_fusion import SonnetFusion
@@ -56,7 +60,10 @@ class Evtformer(nn.Module):
     self.upsample136x32 = nn.Upsample((136, 32))
 
     # ---- 3-branch shared ResNet34 encoder ----
-    resnet = torchvision.models.resnet34(pretrained=True)
+    if ResNet34_Weights is None:
+      resnet = torchvision.models.resnet34(pretrained=True)
+    else:
+      resnet = torchvision.models.resnet34(weights=ResNet34_Weights.IMAGENET1K_V1)
     self.encoder_conv1 = nn.Conv2d(1, 64, kernel_size=3, stride=1, padding=1, bias=False)
     self.encoder_bn1 = resnet.bn1
     self.encoder_relu = resnet.relu
@@ -97,7 +104,22 @@ class Evtformer(nn.Module):
 
     self.final_pool = nn.AvgPool2d((up_h // 17, up_w))
     self.bn1 = nn.BatchNorm1d(2)
-    self.apply(_init_weights)
+
+    self._init_new_layers()
+
+  def _init_new_layers(self):
+    modules = (
+      self.dual_token,
+      self.encoder_conv1,
+      self.sonnet,
+      self.channel_reduce,
+      self.evt,
+      self.bn2,
+      self.decode,
+      self.bn1,
+    )
+    for module in modules:
+      module.apply(_init_weights)
 
   def _encode_branch(self, x: torch.Tensor) -> torch.Tensor:
     x = self.encoder_conv1(x)

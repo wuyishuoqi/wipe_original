@@ -13,8 +13,6 @@ produces enhanced CSI features that retain both temporal and spectral structure.
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-import math
 
 
 class TransformerBlock(nn.Module):
@@ -107,21 +105,103 @@ class TimeFreqDualToken(nn.Module):
     self.time_pos = nn.Parameter(torch.randn(1, n_timesteps, d_model) * 0.02)
     self.freq_pos = nn.Parameter(torch.randn(1, n_subcarriers, d_model) * 0.02)
 
-    # Domain-specific Transformer encoders
+    # Multi-stage domain-specific encoders and bidirectional cross attention.
     self.time_blocks = nn.ModuleList([
       TransformerBlock(d_model, n_heads) for _ in range(n_layers)
     ])
     self.freq_blocks = nn.ModuleList([
       TransformerBlock(d_model, n_heads) for _ in range(n_layers)
     ])
+    self.time_cross_blocks = nn.ModuleList([
+      CrossAttentionBlock(d_model, n_heads) for _ in range(n_layers)
+    ])
+    self.freq_cross_blocks = nn.ModuleList([
+      CrossAttentionBlock(d_model, n_heads) for _ in range(n_layers)
+    ])
 
-    # Cross-domain attention
+    # Compatibility path for checkpoints trained before the multi-stage
+    # grid-fusion update. These modules are used only when such a checkpoint
+    # is loaded.
     self.time_cross = CrossAttentionBlock(d_model, n_heads)
     self.freq_cross = CrossAttentionBlock(d_model, n_heads)
-
-    # Output projections
     self.time_out = nn.Linear(d_model, time_in_dim)
     self.freq_out = nn.Linear(d_model, freq_in_dim)
+    self._legacy_checkpoint = False
+
+    # Grid-level fusion keeps each subcarrier and timestep explicit before
+    # the ResNet antenna encoder sees the CSI as a feature image.
+    self.fusion_gate = nn.Sequential(
+      nn.Linear(d_model * 2, d_model),
+      nn.GELU(),
+      nn.Linear(d_model, 1),
+    )
+    self.grid_out = nn.Linear(d_model, n_antennas)
+    self.residual_scale = nn.Parameter(torch.tensor(0.1))
+
+  def _load_from_state_dict(
+    self,
+    state_dict,
+    prefix,
+    local_metadata,
+    strict,
+    missing_keys,
+    unexpected_keys,
+    error_msgs,
+  ):
+    legacy_prefixes = (prefix + "time_cross.", prefix + "freq_cross.")
+    has_legacy_checkpoint = any(
+      key.startswith(legacy_prefixes) for key in state_dict
+    ) and prefix + "grid_out.weight" not in state_dict
+    self._legacy_checkpoint = has_legacy_checkpoint
+
+    for name, value in (
+      ("residual_scale", self.residual_scale),
+      ("fusion_gate.0.weight", self.fusion_gate[0].weight),
+      ("fusion_gate.0.bias", self.fusion_gate[0].bias),
+      ("fusion_gate.2.weight", self.fusion_gate[2].weight),
+      ("fusion_gate.2.bias", self.fusion_gate[2].bias),
+      ("grid_out.weight", self.grid_out.weight),
+      ("grid_out.bias", self.grid_out.bias),
+    ):
+      key = prefix + name
+      if key not in state_dict:
+        state_dict[key] = value.detach().clone()
+
+    for legacy_name, current_blocks in (
+      ("time_cross", self.time_cross_blocks),
+      ("freq_cross", self.freq_cross_blocks),
+    ):
+      for block_idx, block in enumerate(current_blocks):
+        for name, value in block.state_dict().items():
+          current_key = prefix + f"{legacy_name}_blocks.{block_idx}.{name}"
+          legacy_key = prefix + f"{legacy_name}.{name}"
+          if current_key in state_dict:
+            continue
+          if block_idx == 0 and legacy_key in state_dict:
+            state_dict[current_key] = state_dict[legacy_key]
+          else:
+            state_dict[current_key] = value.detach().clone()
+
+    for name, module in (
+      ("time_cross", self.time_cross),
+      ("freq_cross", self.freq_cross),
+      ("time_out", self.time_out),
+      ("freq_out", self.freq_out),
+    ):
+      for param_name, value in module.state_dict().items():
+        key = prefix + f"{name}.{param_name}"
+        if key not in state_dict:
+          state_dict[key] = value.detach().clone()
+
+    super()._load_from_state_dict(
+      state_dict,
+      prefix,
+      local_metadata,
+      strict,
+      missing_keys,
+      unexpected_keys,
+      error_msgs,
+    )
 
   def forward(self, x: torch.Tensor):
     """Enhance CSI with dual-token time-frequency attention.
@@ -143,24 +223,46 @@ class TimeFreqDualToken(nn.Module):
     freq_tokens = x.permute(0, 2, 1, 3).reshape(B, self.n_subcarriers, -1)
     freq_tokens = self.freq_proj(freq_tokens) + self.freq_pos  # [B, 114, d]
 
-    # ---- Domain-specific self-attention ----
-    for blk in self.time_blocks:
-      time_tokens = blk(time_tokens)
-    for blk in self.freq_blocks:
-      freq_tokens = blk(freq_tokens)
+    if self._legacy_checkpoint:
+      for time_blk, freq_blk in zip(self.time_blocks, self.freq_blocks):
+        time_tokens = time_blk(time_tokens)
+        freq_tokens = freq_blk(freq_tokens)
 
-    # ---- Cross-domain attention ----
-    time_tokens = self.time_cross(time_tokens, freq_tokens)
-    freq_tokens = self.freq_cross(freq_tokens, time_tokens)
+      time_tokens = self.time_cross(time_tokens, freq_tokens)
+      freq_tokens = self.freq_cross(freq_tokens, time_tokens)
 
-    # ---- Project back to original dimensions ----
-    time_out = self.time_out(time_tokens)   # [B, 9, 342]
-    freq_out = self.freq_out(freq_tokens)   # [B, 114, 27]
+      time_out = self.time_out(time_tokens).reshape(
+        B, self.n_timesteps, self.n_subcarriers, self.n_antennas
+      )
+      freq_out = self.freq_out(freq_tokens).reshape(
+        B, self.n_subcarriers, self.n_timesteps, self.n_antennas
+      )
+      freq_out = freq_out.permute(0, 2, 1, 3)
+      return (time_out + freq_out) / 2
 
-    # ---- Fuse and reshape back to [B, 9, 114, 3] ----
-    time_out = time_out.reshape(B, self.n_timesteps, self.n_subcarriers, self.n_antennas)
-    freq_out = freq_out.reshape(B, self.n_subcarriers, self.n_timesteps, self.n_antennas)
-    freq_out = freq_out.permute(0, 2, 1, 3)
+    # ---- Multi-stage dual-token fusion ----
+    for time_blk, freq_blk, time_cross, freq_cross in zip(
+      self.time_blocks,
+      self.freq_blocks,
+      self.time_cross_blocks,
+      self.freq_cross_blocks,
+    ):
+      time_tokens = time_blk(time_tokens)
+      freq_tokens = freq_blk(freq_tokens)
+      time_next = time_cross(time_tokens, freq_tokens)
+      freq_next = freq_cross(freq_tokens, time_tokens)
+      time_tokens, freq_tokens = time_next, freq_next
 
-    out = (time_out + freq_out) / 2.0  # simple average fusion
+    # ---- Fuse on the explicit time-subcarrier grid ----
+    time_grid = time_tokens.unsqueeze(2).expand(
+      B, self.n_timesteps, self.n_subcarriers, self.d_model
+    )
+    freq_grid = freq_tokens.unsqueeze(1).expand(
+      B, self.n_timesteps, self.n_subcarriers, self.d_model
+    )
+    gate = torch.sigmoid(self.fusion_gate(torch.cat((time_grid, freq_grid), dim=-1)))
+    fused_grid = gate * time_grid + (1.0 - gate) * freq_grid
+    enhanced = self.grid_out(fused_grid)
+
+    out = x + self.residual_scale * (enhanced - x)
     return out
