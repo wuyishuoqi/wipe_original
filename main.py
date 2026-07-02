@@ -40,20 +40,20 @@ inferConfList: list[config.Infer] = [
 
   # ===== Evtformer =====
   # config.Infer(
-  #   model="Evtformer", fusion="none",
-  #   weightsFile=r"out/train/model/Evtformer/0/epoch-19/weights.pt",
-  #   outDir="infer/evt-v1-desk-chair",
+  #   model="EvtformerV4", fusion="none",
+  #   weightsFile=r"out/train/model/Evtformer/1/epoch-19/weights.pt",
+  #   outDir="infer/evt-v4-noostruct",
   # ),
-  config.Infer(
-    model="Evtformer", fusion="none",
-    weightsFile=r"out/train/model/Evtformer/1/epoch-19/weights.pt",
-    outDir="infer/evt-v4-noostruct",
-  ),
   # config.Infer(
-  #   model="Evtformer", fusion="none",
+  #   model="EvtformerV7", fusion="none",
   #   weightsFile=r"out/train/model/Evtformer/5/epoch-19/weights.pt",
   #   outDir="infer/evt-v7-desk-chair",
   # ),
+  config.Infer(
+    model="Evtformer", fusion="none",
+    weightsFile=r"out/train/model/Evtformer/9/epoch-19/weights.pt",
+    outDir="infer/evt-v8-obstacle",
+  ),
 
   # ===== Wisppn =====
   # config.Infer(
@@ -105,7 +105,7 @@ inferConfList: list[config.Infer] = [
 #     )
 #   )
 
-for i in range(7, 8):
+for i in range(9, 10):
   model = "Evtformer"
   trianConfList.append(
     config.Train(

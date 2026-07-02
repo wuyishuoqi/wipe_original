@@ -228,7 +228,7 @@ class Trainer:
         self.conf.csiSubDir,
         self.conf.fusion,
       )
-    elif self.conf.model in ("Wpformer", "Evtformer"):
+    elif self.conf.model in ("Wpformer", "Evtformer", "EvtformerV4", "EvtformerV7"):
       dataset = MyDateset.TrainWpformer(
         datasetPath,
         self.conf.nTimestep,
@@ -959,11 +959,21 @@ class TrainerWisppn(Trainer):
 
 
 class TrainerEvtformer(TrainerWpformer):
-  """Trainer for Evtformer model.
+  """Trainer for Evtformer model (v8, latest).
 
   Inherits from TrainerWpformer since Evtformer shares the same
   input/output format: CSI -> [N, 17, 2] keypoint coordinates.
   Uses Wpformer dataset and loss (MSE on keypoints).
   """
 
+  pass
+
+
+class TrainerEvtformerV4(TrainerWpformer):
+  """Trainer for EvtformerV4 model (CT + EVT)."""
+  pass
+
+
+class TrainerEvtformerV7(TrainerWpformer):
+  """Trainer for EvtformerV7 model (DualToken v1 + SonnetFusion + EVT)."""
   pass
