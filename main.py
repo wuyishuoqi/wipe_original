@@ -105,7 +105,7 @@ inferConfList: list[config.Infer] = [
 #     )
 #   )
 
-for i in range(9, 10):
+for i in range(12, 13):
   model = "Evtformer"
   trianConfList.append(
     config.Train(
@@ -194,7 +194,7 @@ if __name__ == "__main__":
   #     assert conf.model == "Piw"
   #     Trainer(conf).train()
   # else:
-  # for conf in tqdm(trianConfList, desc="Conf"):
-  #     Trainer(conf).train()
-  for conf in tqdm(inferConfList, desc="Conf"):
-      Trainer(conf).inference()
+  for conf in tqdm(trianConfList, desc="Conf"):
+      Trainer(conf).train()
+  # for conf in tqdm(inferConfList, desc="Conf"):
+  #     Trainer(conf).inference()

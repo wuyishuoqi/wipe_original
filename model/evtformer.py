@@ -1,6 +1,9 @@
 """Evtformer: Multi-Stage DualToken + SonnetFusion + EVT Refinement.
 
 v8 over v7: multi-stage cross-attn, gate fusion, residual scaling.
+Current revision keeps the v8 route and stabilizes the residual/prior gates
+that became unstable on obstacle-no-zhedang.
+
 Flow: CSI -> DualToken -> 3-branch ResNet34 -> SonnetFusion -> EVT -> decode
 """
 """
@@ -9,12 +12,12 @@ Full Sonnet pipeline adapted for WiFi CSI:
   1. SonnetFusion: AdaptiveWavelet -> CoherenceAttention -> KoopmanLayer
      Processes each antenna's features independently through shared SonnetBlock.
   2. EVT spatial attention (x2) for geometry-aware refinement.
-  3. Large feature maps (34x36) for meaningful spatial priors.
+  3. Large feature maps (17x24) for meaningful spatial priors.
 
 Flow:
   CSI -> 3 antenna branches -> ResNet34 -> concat [B,512,17,12]
     -> SonnetFusion (per-antenna wavelet+coherence+koopman)
-    -> Channel reduce 512->128 + Upsample -> [B,128,34,36]
+    -> Channel reduce 512->128 + Upsample -> [B,128,17,24]
     -> EVT spatial attention x2
     -> Decode -> [B,17,2]
 """
@@ -23,6 +26,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torchvision
+import math
 try:
   from torchvision.models import ResNet34_Weights
 except ImportError:
@@ -35,9 +39,55 @@ from model.evt import EVTSpatialAttention
 
 def _make_evt_stack(channels, heads, gamma, layers):
   return nn.Sequential(*[
-    EVTSpatialAttention(channels=channels, num_heads=heads, gamma_init=gamma)
+    StabilizedEVTSpatialAttention(channels=channels, num_heads=heads, gamma_init=gamma)
     for _ in range(layers)
   ])
+
+
+class StabilizedEVTSpatialAttention(EVTSpatialAttention):
+  """EVT with a bounded learnable spatial prior strength."""
+
+  def __init__(
+    self,
+    channels: int,
+    num_heads: int = 8,
+    gamma_init: float = 0.15,
+    gamma_max: float = 0.6,
+  ):
+    super().__init__(channels=channels, num_heads=num_heads, gamma_init=gamma_init)
+    self.gamma_max = gamma_max
+    self.gamma.register_hook(lambda grad: grad.clamp(-0.05, 0.05))
+
+  def forward(self, x: torch.Tensor) -> torch.Tensor:
+    B, C, H, W = x.shape
+    N = H * W
+
+    x_flat = x.flatten(2).transpose(1, 2)
+    shortcut = x_flat
+    x_norm = self.norm1(x_flat)
+
+    qkv = (
+      self.qkv(x_norm)
+      .reshape(B, N, 3, self.num_heads, self.head_dim)
+      .permute(2, 0, 3, 1, 4)
+    )
+    q, k, v = qkv[0], qkv[1], qkv[2]
+
+    attn = (q @ k.transpose(-2, -1)) / math.sqrt(self.head_dim)
+    D = self._build_spatial_decay(H, W, x.device, x.dtype)
+    gamma = self.gamma.clamp(0.0, self.gamma_max)
+    spatial_bias = -gamma * D
+    attn = attn + spatial_bias.unsqueeze(0).unsqueeze(0)
+    attn = attn.softmax(dim=-1)
+
+    out = attn @ v
+    out = out.transpose(1, 2).reshape(B, N, C)
+    out = self.proj(out)
+
+    out = shortcut + out
+    out = out + self.mlp(self.norm2(out))
+    out = out.transpose(1, 2).reshape(B, C, H, W)
+    return out
 
 
 class Evtformer(nn.Module):
@@ -50,7 +100,7 @@ class Evtformer(nn.Module):
     evt_channels: int = 128
     evt_heads: int = 4
     gamma_init: float = 0.15
-    num_evt_layers: int = 2
+    num_evt_layers: int = 1
     n_atoms: int = 32
     up_h: int = 17
     up_w: int = 24

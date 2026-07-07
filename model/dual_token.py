@@ -264,5 +264,6 @@ class TimeFreqDualToken(nn.Module):
     fused_grid = gate * time_grid + (1.0 - gate) * freq_grid
     enhanced = self.grid_out(fused_grid)
 
-    out = x + self.residual_scale * (enhanced - x)
+    residual_scale = self.residual_scale.abs().clamp(max=0.15)
+    out = x + residual_scale * (enhanced - x)
     return out
