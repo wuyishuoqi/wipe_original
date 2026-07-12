@@ -1,0 +1,1328 @@
+• Explored
+  └ Search *Evtformer/12/* in out
+
+───────────────────────────────────────────────────────────────────────────────
+
+• run14 已完整跑到 20 个 epoch。接下来我会直接从每个 val.pck.pkl 的最后一次累计
+  评估取值，避免被 master_pck.csv 的旧汇总误导，同时核对训练/验证 loss 与 PCK
+  峰值是否仍错位。
+
+• Ran python - <<'PY'
+  │ from pathlib import Path
+  │ import pickle, numpy as np
+  │ … +23 lines
+  └ RUN 12: best ep=17 pck=0.984835479; last=0.977195449; min-val ep=17
+    loss=1.692134 pck=0.984835479
+    … +78 lines (ctrl + t to view transcript)
+    Piw,-,-,-,双分支(PAFs) 未训练
+    Wpnet,-,-,-,纯CNN 未训练
+
+───────────────────────────────────────────────────────────────────────────────
+
+• 初步结果很明确：run14 最佳仅 0.90424（epoch 8），比 run13 的 0.93358 还低，更
+  远低于 run12 的 0.98484；而且 epoch 15 后明显退化。这个现象不能简单归因于“不
+  确定性权重仍偏大”，因为验证 loss 也长期高于 run12，我正在核对三次运行的数据划
+  分是否一致，以及门控/修正分支是否在训练早期就放大了坐标偏移。
+
+• Ran python - <<'PY'
+  │ from pathlib import Path
+  │ import numpy as np, torch, hashlib
+  │ … +26 lines
+  └
+    RUN 12
+    … +42 lines (ctrl + t to view transcript)
+      uncertainty_decode norms
+    46.9896,4.8615,1.4962,661.5977,1533784.3750,87480.0000,2.6860,0.3453
+
+───────────────────────────────────────────────────────────────────────────────
+
+• run14 结果
+
+  run14 没有达到预期，反而进一步下降：
+
+   运行                  最佳 epoch    最佳 PCK    最后 PCK
+  ━━━━━━━━━━━━━━━━━━━━  ━━━━━━━━━━━━  ━━━━━━━━━━  ━━━━━━━━━━
+   run12 稳定版                  17     0.98484     0.97720
+  ────────────────────  ────────────  ──────────  ──────────
+   run13 不确定性主导            12     0.93358     0.87895
+  ────────────────────  ────────────  ──────────  ──────────
+   run14 MSE 主导                 8     0.90424     0.72064
+
+  run14 相比 run12 下降了 8.06 个百分点，相比 run13 也下降了 2.93 个百分点。
+
+  Epoch 表现
+
+  - epoch 0～3：PCK 从 0.3258 快速升到 0.7653
+  - epoch 8：达到最高 0.90424
+  - epoch 11：验证 loss 最低，PCK 为 0.89851
+  - epoch 15 后：出现严重震荡和退化
+  - epoch 19：只剩 0.72064
+
+  这说明 MSE 主导虽然纠正了 run13 的 loss 方向，但模型内部仍然存在不稳定分支。
+  问题不是训练不足，继续增加 epoch 大概率只会扩大退化。
+
+  主要原因
+
+  1. 第一层 EVT 被完全打开
+
+  run14 最佳 epoch 8：
+
+  primary.gamma   = 0.6030
+  secondary.gamma = 0.6033
+
+  前向传播会将其限制到 0.6。但参数一旦超过上限，torch.clamp 在边界外的梯度为
+  零，因此两个 gamma 实际上被卡死在最大强度。
+
+  run13 的两个 gamma 都是负数，前向有效值为 0。所以 run14 与 run13 不是单纯
+  loss 的对比，EVT 工作状态也完全不同。
+
+  2. 弱门控第二层仍然较弱
+
+  第二层 gate：
+
+  epoch 8:  0.25 × sigmoid(-2.7717) ≈ 0.0147
+  epoch 19: 0.25 × sigmoid(-2.7136) ≈ 0.0156
+
+  第二层只贡献约 1.5%，不是本轮下降的主要来源。真正的问题是第一层 EVT 被推到最
+  大强度。
+
+  3. 后处理门控持续增大
+
+  坐标修正有效 gate：
+
+  epoch 8:  约 0.0354
+  epoch 19: 约 0.0470
+
+  随着训练进行，后处理修正越来越强，而 PCK 从 0.9042 降到 0.7206。说明修正模块
+  正在放大坐标误差，而不是稳定骨架结构。
+
+  4. 不确定性分支参数明显膨胀
+
+  不确定性解码器部分权重范数从 epoch 8 的约 483,009 增长到 epoch 19 的约
+  1,533,784。即使权重已经降到 0.05，该分支仍发生数值膨胀，并通过共享特征干扰主
+  任务。
+
+  5. 末端关节依旧最差
+
+  run14 最佳 epoch 8 中：
+
+  - 末端关节约 0.8163 / 0.8181
+  - run12 对应约 0.9671 / 0.9703
+
+  这表明不确定性和骨架后处理没有补回末端关节，反而削弱了原始坐标回归能力。
+
+  排除项
+
+  三次运行的训练集和验证集索引哈希完全一致，因此下降不是数据划分造成的。
+
+  另外，out/stats/master_pck.csv 仍然是旧汇总，没有记录 run12～run14；上述结论
+  来自逐 epoch 的原始 PCK 文件。
+
+  结论
+
+  run14 的核心问题不是 MSE 权重，而是：
+
+  - EVT gamma 使用硬 clamp，触顶后被冻结在最大值；
+  - 后处理 gate 持续增大；
+  - 不确定性解码器数值膨胀；
+  - 三个新机制同时影响共享特征，导致训练后期明显失稳。
+
+  下一轮最合理的处理是保留弱门控第二层 EVT，但修复 gamma 参数化，并暂时关闭坐标
+  后处理，只保留低权重、梯度隔离的不确定性辅助监督。
+
+─ Worked for 1m 54s ───────────────────────────────────────────────────────────
+
+
+› 三个新机制是指?
+
+
+• 三个新机制是：
+
+  1. 弱门控第二层 EVT
+      - 第一层 EVT 正常保留。
+      - 第二层 EVT 通过可学习 gate 控制贡献。
+      - run14 中第二层贡献约 1.5%，不是主要问题。
+
+  2. 不确定性建模
+      - 模型额外预测每个关节的 log_vars。
+      - Loss 根据预测的不确定性调整不同关节误差的权重。
+      - run14 中该分支权重明显膨胀，可能干扰共享特征。
+
+  3. 骨架坐标后处理
+      - 根据人体关节连接关系预测 refine_delta。
+      - 最终输出为原始坐标加门控修正量。
+      - run14 中修正 gate 不断增大，并伴随后期 PCK 下降。
+
+  另外，第一层 EVT 的 gamma 硬限制问题不是独立的新机制，而是 EVT 实现中的稳定性
+  缺陷。
+
+
+› 下一轮最合理的处理是保留弱门控第二层 EVT，但修复 gamma 参数化，并暂时关闭坐
+  标
+    后处理，只保留低权重、梯度隔离的不确定性辅助监督。
+  这个是什么意思?解释下
+
+
+• 意思是下一轮不要同时让三个新模块直接影响坐标预测，而是拆开控制它们的风险。
+
+  1. 保留弱门控第二层 EVT
+
+  仍然使用：
+
+  第一层 EVT：主要空间精修
+  第二层 EVT：gate × 第二层输出
+
+  第二层 gate 初始很小，让模型自己决定是否需要更多空间建模。run14 中第二层实际
+  贡献约 1.5%，没有失控，因此可以保留。
+
+  2. 修复 gamma 参数化
+
+  目前实现类似：
+
+  gamma_effective = torch.clamp(self.gamma, 0.0, 0.6)
+
+  run14 中 gamma 超过 0.6 后，clamp 的梯度变成零，参数会卡在最大强度。
+
+  建议改为平滑参数化：
+
+  gamma_effective = 0.6 * torch.sigmoid(self.gamma_logit)
+
+  这样 gamma 永远处于 (0, 0.6)，但不会因为触碰边界而失去梯度。初始化也可以设得
+  较小，例如有效 gamma 为 0.05，避免训练开始时 EVT 过度改变特征。
+
+  3. 暂时关闭坐标后处理
+
+  当前最终坐标是：
+
+  final_keypoints = raw_keypoints + gate * refine_delta
+
+  run14 后处理 gate 持续增大，同时 PCK 明显下降。因此下一轮先改为：
+
+  final_keypoints = raw_keypoints
+
+  可以保留后处理代码，但不参与最终输出和 loss。这样能判断主要坐标回归是否恢复到
+  run12 水平。
+
+  4. 保留低权重的不确定性辅助监督
+
+  模型仍预测每个关节的不确定性，但主任务继续使用普通 MSE：
+
+  loss = mse_loss + 0.01 * uncertainty_loss
+
+  MSE 决定坐标预测；不确定性 loss 只作为很弱的辅助项，不能取代主任务。
+
+  5. 梯度隔离
+
+  不确定性分支读取共享特征时使用：
+
+  uncertainty_input = features.detach()
+  log_vars = uncertainty_head(uncertainty_input)
+
+  detach() 后：
+
+  - 不确定性 head 仍然可以训练；
+  - 不确定性 loss 不会反向修改主干、EVT 和坐标回归特征；
+  - 即使不确定性参数膨胀，也不容易拖低 PCK。
+
+  整体数据流变成：
+
+  共享特征 ──> 坐标回归 ──> raw_keypoints ──> 最终输出
+      │
+      └─ detach ─> 不确定性预测 ─> 弱辅助 loss
+
+  第一层 EVT ─> 弱门控第二层 EVT
+  坐标后处理：暂时禁用
+
+  本质上，这是一次针对 run14 的消融实验：保留可能有效的第二层 EVT，同时隔离不确
+  定性风险、关闭已经表现出负作用的坐标后处理。这样才能判断弱门控 EVT 本身能否达
+  到或超过 run12。
+
+
+› run12是什么版本?B1版本吗?
+
+
+• 是的，run12 就是 B1 版本，训练数据集为 desk-chair-350。
+
+  核心配置：
+
+  - 只使用 一层 EVT
+  - 没有弱门控第二层 EVT
+  - 没有不确定性建模
+  - 没有骨架坐标后处理
+  - 最佳结果：epoch 17，PCK 0.98484
+
+  run12 是目前 desk 数据集上最稳定的对照基线。
+
+
+› 那针对run14的消融实验,改动了什么?和run12对比的话.
+
+
+• 严格来说，run14 不是完整的消融实验，而是同时加入多个机制后的组合实验。
+
+  与 run12（B1）相比，run14 改动如下：
+
+   项目            run12（B1）     run14
+  ━━━━━━━━━━━━━━  ━━━━━━━━━━━━━━  ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   EVT 层数        单层 EVT        第一层 EVT + 弱门控第二层
+  ──────────────  ──────────────  ───────────────────────────
+   第二层 gate     无              有，实际约 1.5%
+  ──────────────  ──────────────  ───────────────────────────
+   EVT gamma       单层原配置      两层使用 clamp(0, 0.6)
+  ──────────────  ──────────────  ───────────────────────────
+   不确定性预测    无              预测每个关节的 log_vars
+  ──────────────  ──────────────  ───────────────────────────
+   坐标后处理      无              骨架关系网络预测坐标修正
+  ──────────────  ──────────────  ───────────────────────────
+   最终输出        原始回归坐标    原始坐标 + 门控修正量
+  ──────────────  ──────────────  ───────────────────────────
+   Loss            原始坐标 MSE    组合 Loss
+
+  run14 的 Loss 是：
+
+  loss = (
+      refined_mse
+      + 0.3 * raw_mse
+      + 0.05 * uncertainty_loss
+      + 0.1 * refine_regularization
+  )
+
+  所以 run14 同时验证了：
+
+  1. 弱门控第二层 EVT；
+  2. 不确定性辅助 Loss；
+  3. 骨架坐标后处理；
+  4. 新的组合 Loss；
+  5. EVT gamma 限制方式。
+
+  这也是为什么仅凭 run14 无法断定到底哪个模块导致下降。虽然参数表现显示后处理、
+  不确定性分支和 gamma 都存在风险，但它们相互影响。
+
+  真正合理的下一轮消融应该以 run12 为基线，只增加或改变一个受控组合：
+
+  run12 单层 EVT
+      +
+  弱门控第二层 EVT
+      +
+  平滑 gamma 参数化
+
+  同时：
+
+  - 最终输出恢复成原始坐标；
+  - 关闭骨架坐标后处理；
+  - 不确定性分支使用 detach() 隔离；
+  - 不确定性 Loss 降至约 0.01。
+
+  这样下一轮才能主要回答：弱门控第二层 EVT 是否比 run12 的单层 EVT 更好。
+
+
+› 那你就帮我这么改
+
+
+• 我会以 run12 的坐标回归路径为主线：保留弱门控第二层 EVT，把 gamma 改成平滑有
+  界参数；最终输出直接使用原始坐标；不确定性分支从主特征 detach，Loss 权重降到
+  0.01。我先定位当前实现和 run 编号，再做最小范围修改。
+
+• Explored
+  └ Search class Stabilized|class WeakGated|gamma|coord_refine|uncertainty|
+           refined_loss|raw_loss|range\( in evtformer.py
+
+───────────────────────────────────────────────────────────────────────────────
+
+• 当前代码与预期一致：run14 的 clamp 会让 gamma 触顶后失去梯度，后处理仍直接改
+  最终坐标，不确定性也仍共享主干梯度。现在我会只改这三处并把下一次输出切到
+  run15，不改数据路径和 Trainer 流程。
+
+• Explored
+  └ Read evtformer.py, loss.py, main.py
+
+───────────────────────────────────────────────────────────────────────────────
+
+• 具体修改会保证梯度关系清晰：gamma 参数保存为 logit，经 0.6*sigmoid 平滑映射；
+  不确定性输入和坐标误差都 detach，因此该辅助 loss 只能训练 uncertainty head；
+  keypoints 直接返回 raw，后处理模块保留但不执行。Loss 恢复为主 MSE 加 0.01 不
+  确定性项。
+
+• Edited 3 files (+15 -15)
+  └ loss.py (+4 -9)
+    153        log_vars = keypoints.get("log_vars")
+    154 -      refine_delta = keypoints.get("refine_delta")
+    154
+    155        refined_loss = F.mse_loss(refined, keypointsT)
+    157 -      raw_loss = F.mse_loss(raw, keypointsT)
+    156
+    157        if log_vars is not None:
+    160 -        coord_error = (refined - keypointsT).pow(2).mean(dim=-1, keepd
+         im=True)
+    158 +        coord_error = (
+    159 +          (raw.detach() - keypointsT).pow(2).mean(dim=-1, keepdim=True
+         )
+    160 +        )
+    161          inv_var = torch.exp(-log_vars)
+        ⋮
+    165
+    166 -      if refine_delta is None:
+    167 -        refine_reg = torch.zeros((), device=refined.device)
+    168 -      else:
+    169 -        refine_reg = refine_delta.pow(2).mean()
+    170 -
+    171 -      loss = refined_loss + 0.3 * raw_loss + 0.05 * uncertainty_loss +
+          0.1 * refine_reg
+    166 +      loss = refined_loss + 0.01 * uncertainty_loss
+    167        lossValue = loss.item()
+
+  └ main.py (+1 -1)
+    107
+    108 -for i in range(14, 15):
+    108 +for i in range(15, 16):
+    109    model = "Evtformer"
+
+  └ model/evtformer.py (+10 -5)
+     51      self.gamma_max = gamma_max
+     52 -    self.gamma.register_hook(lambda grad: grad.clamp(-0.05, 0.05))
+     52 +    gamma_ratio = min(max(gamma_init / gamma_max, 1e-4), 1.0 - 1e-4)
+     53 +    gamma_logit = math.log(gamma_ratio / (1.0 - gamma_ratio))
+     54 +    with torch.no_grad():
+     55 +      self.gamma.fill_(gamma_logit)
+     56
+        ⋮
+     73      D = self._build_spatial_decay(H, W, x.device, x.dtype)
+     71 -    gamma = self.gamma.clamp(0.0, self.gamma_max)
+     74 +    gamma = self.gamma_max * torch.sigmoid(self.gamma)
+     75      spatial_bias = -gamma * D
+        ⋮
+    292
+    290 -    log_vars = self.uncertainty_decode(x)
+    293 +    log_vars = self.uncertainty_decode(x.detach())
+    294      log_vars = self.final_pool(log_vars)
+        ⋮
+    303
+    301 -    refined, refine_delta = self.coord_refine(raw)
+    304 +    # Keep the postprocessor available for later ablation, but do not
+         let it
+    305 +    # alter the coordinate baseline in this run.
+    306 +    refine_delta = torch.zeros_like(raw)
+    307
+    308      return {
+    304 -      "keypoints": refined,
+    309 +      "keypoints": raw,
+    310        "raw_keypoints": raw,
+
+───────────────────────────────────────────────────────────────────────────────
+
+• 代码已切到 run15。现在做两类验证：一是语法和小型前反向；二是确认 uncertainty
+  loss 对坐标张量的梯度与纯 MSE 完全一致，同时 gamma 在有效区间内且仍有梯度。
+
+• Ran python -m py_compile model/evtformer.py loss.py main.py train.py
+  │ python - <<'PY'
+  │ import torch
+  │ … +34 lines
+  └ <stdin>:26: UserWarning: Converting a tensor with requires_grad=True to a
+    scalar may lead to unexpected behavior.
+    … +4 lines (ctrl + t to view transcript)
+    loss= 1.562565803527832 coord_grad_max_diff= 0.0 uncertainty_grad_norm=
+    0.004675613716244698
+
+───────────────────────────────────────────────────────────────────────────────
+
+• 验证通过：gamma 初始有效值准确为 0.15 且梯度非零；第二层初始 gate 为
+  0.01186；最关键的是加入 uncertainty 后，坐标梯度与纯 MSE 的最大差值为 0.0，说
+  明辅助分支已完全隔离。最后我检查一次差异，确认没有触碰 Trainer 和数据配置。
+
+• Ran git diff -- model/evtformer.py loss.py main.py | sed -n '1,240p'
+  │ printf '\nDATA CONFIG\n'
+  │ rg -n "dataset|dataDir|rootDir|desk-chair|noostruct|obstacle" config.py |
+  │ … +1 lines
+  └ diff --git a/loss.py b/loss.py
+    index 96615cb..448eecb 100644
+    … +246 lines (ctrl + t to view transcript)
+    72:  datasetDir: str = Pre.parsedDir
+    121:  datasetDir: str = Pre.parsedDir
+
+───────────────────────────────────────────────────────────────────────────────
+
+• 已修改为 run15：
+
+  - 保留弱门控第二层 EVT。
+  - gamma 改为 0.6 × sigmoid(logit)，避免触顶后梯度归零。
+  - 禁用骨架坐标后处理，最终输出直接使用原始坐标。
+  - 不确定性分支使用 detach()，不再影响主干和坐标回归。
+  - Loss 改为 MSE + 0.01 × uncertainty_loss。
+  - 未修改 Trainer 和 desk 数据集路径。
+
+  已通过语法、前向和反向验证；不确定性分支对坐标梯度影响为 0.0。运行 python
+  main.py 将训练到 out/train/model/Evtformer/15。
+
+─ Worked for 1m 11s ───────────────────────────────────────────────────────────
+
+
+› 结合epoch,帮我分析下结果.
+
+
+• 我先读取 run15 的逐 epoch PCK、训练/验证 loss，并与 run12 基线和 run14 对照；
+  随后检查最佳与末轮检查点中的 gamma、第二层 gate 和不确定性分支状态。
+
+• Ran find out/train/model/Evtformer/15 -maxdepth 2 -type f | sort | tail -80
+  │ python - <<'PY'
+  │ from pathlib import Path
+  │ … +25 lines
+  └ RUN 12 epochs=20 best_ep=17 best=0.984835479 last=0.977195449 minval_ep=17
+    minval=1.692134 minval_pck=0.984835479
+    … +27 lines (ctrl + t to view transcript)
+    17881,0.803136,0.779582,0.761644,0.838959,0.803920,0.858514,0.830390,0.8223
+    15,0.799273
+
+───────────────────────────────────────────────────────────────────────────────
+
+• run15 最佳 PCK 只有 0.82069，说明这次“隔离不确定性、关闭后处理”并没有恢复
+  run12；而且它的学习曲线更像 run12 的前半程被严重延迟，到 epoch 17 才达到峰
+  值。下一步重点检查平滑 gamma 是否改变了 run12 原有 EVT 强度，以及数据划分是否
+  仍完全一致。
+
+• Ran python - <<'PY'
+  │ from pathlib import Path
+  │ import torch, numpy as np, hashlib, math
+  │ … +27 lines
+  └
+    RUN 12
+    … +52 lines (ctrl + t to view transcript)
+       module.evt.secondary.gamma raw -1.917851 effective 0.076861
+       uncertainty_max_norm 87480.000
+
+───────────────────────────────────────────────────────────────────────────────
+
+• run15 结果
+
+   版本        最佳 epoch    最佳 PCK    最后 PCK
+  ━━━━━━━━━━  ━━━━━━━━━━━━  ━━━━━━━━━━  ━━━━━━━━━━
+   run12 B1            17     0.98484     0.97720
+  ──────────  ────────────  ──────────  ──────────
+   run14                8     0.90424     0.72064
+  ──────────  ────────────  ──────────  ──────────
+   run15               17     0.82069     0.77577
+
+  run15 比 run12 下降 16.41 个百分点，也低于 run14。
+
+  Epoch 分析
+
+  run15 收敛明显过慢：
+
+  - epoch 8：0.03392
+  - epoch 11：0.42867
+  - epoch 13：0.65155
+  - epoch 17：最高 0.82069
+  - epoch 19：下降到 0.77577
+
+  相比之下，run12 在 epoch 13 已达到 0.95263。
+
+  积极的一点是，run15 的最低验证 loss 和最高 PCK 都在 epoch 17，说明关闭后处
+  理、隔离不确定性后，Loss 与 PCK 已重新对齐。但模型特征本身明显弱于 run12。
+
+  关键原因：gamma 与 run12 不一致
+
+  run12 最佳模型：
+
+  gamma raw      = -0.001375
+  有效 gamma     = 0
+
+  也就是说，desk 数据集上的 B1 最佳结果实际上关闭了 EVT 的空间距离先验。
+
+  run15 最佳模型：
+
+  第一层有效 gamma = 0.10352
+  第二层有效 gamma = 0.07464
+  第二层 gate       = 0.01131
+
+  平滑 sigmoid 虽然修复了梯度触顶问题，却让 gamma 无法真正归零。desk 数据集不需
+  要这么强的 EVT 空间先验，因此 PCK 大幅下降。
+
+  其他模块判断
+
+  - 三次运行的数据划分完全一致，可以排除数据差异。
+  - 坐标后处理已关闭，因此不是 run15 下降原因。
+  - 不确定性分支已梯度隔离，不会修改主干特征。
+  - 第二层 gate 只有约 1.1%，影响较小，但仍需要单独验证。
+  - 各关节普遍下降，不只是末端关节，说明是整体特征建模问题。
+
+  结论
+
+  run15 证明：
+
+  1. 关闭坐标后处理是正确的，Loss 与 PCK 已恢复一致。
+  2. 不确定性梯度隔离有效。
+  3. 当前平滑 gamma 参数化不适合 desk，因为它保留了约 0.1 的空间先验。
+  4. run12 的高 PCK 依赖于 gamma 能够收缩到真正接近 0。
+
+  下一轮应继续保留当前输出和隔离 Loss，但将 gamma 初始化到极小值，例如 0.005，
+  并允许它平滑逼近 0。这样才能公平判断弱门控第二层 EVT是否优于 run12。
+
+───────────────────────────────────────────────────────────────────────────────
+
+
+› 好的,那请你帮我继续修改代码
+
+
+• 我会保持 run15 的输出路径和梯度隔离不变，只把两层 EVT 的有效 gamma 初值从
+  0.15 降到 0.005，让 desk 能接近 run12 的零空间先验，同时仍保留向上学习的能
+  力；训练编号切到 run16。
+
+• Ran sed -n '35,110p' model/evtformer.py
+  │ sed -n '155,180p' model/evtformer.py
+  │ sed -n '104,116p' main.py
+  │ … +1 lines
+  └ from model.dual_token import TimeFreqDualToken
+    from model.sonnet_fusion import SonnetFusion
+    … +115 lines (ctrl + t to view transcript)
+     M model/evtformer.py
+     M train.py
+
+───────────────────────────────────────────────────────────────────────────────
+
+• 当前工作区只有此前相关文件的未提交修改；我不会改动 Trainer。现在只调整 gamma
+  初值和 run 编号，避免引入新的实验变量。
+
+• Edited 2 files (+3 -3)
+  └ main.py (+1 -1)
+    107
+    108 -for i in range(15, 16):
+    108 +for i in range(16, 17):
+    109    model = "Evtformer"
+
+  └ model/evtformer.py (+2 -2)
+     46      num_heads: int = 8,
+     47 -    gamma_init: float = 0.15,
+     47 +    gamma_init: float = 0.005,
+     48      gamma_max: float = 0.6,
+        ⋮
+    169      evt_heads: int = 4
+    170 -    gamma_init: float = 0.15
+    170 +    gamma_init: float = 0.005
+    171      n_atoms: int = 32
+
+───────────────────────────────────────────────────────────────────────────────
+
+• 修改完成。接下来验证 run16 的两层 gamma 初始有效值确实为 0.005、第二层 gate
+  未变化，并确认平滑参数在这个低值附近仍有有效梯度。
+
+• Ran python -m py_compile model/evtformer.py loss.py main.py train.py
+  │ python - <<'PY'
+  │ import torch
+  │ … +24 lines
+  └ gamma_raw= -4.779123306274414
+    gamma_effective= 0.005000000819563866
+    … +10 lines (ctrl + t to view transcript)
+    model/evtformer.py:96:    gamma_init: float,
+    model/evtformer.py:170:    gamma_init: float = 0.005
+
+───────────────────────────────────────────────────────────────────────────────
+
+• 已完成 run16 配置：
+
+  - 两层 EVT 的有效 gamma 初值从 0.15 降到 0.005。
+  - 保留平滑 sigmoid 参数化，gamma 仍可学习。
+  - 第二层 gate 保持 0.01186。
+  - 保持关闭坐标后处理和不确定性梯度隔离。
+  - 未修改 Trainer 和数据集配置。
+  - 输出目录切换为 out/train/model/Evtformer/16。
+
+  语法和反向传播验证通过。运行：
+
+  python main.py
+
+───────────────────────────────────────────────────────────────────────────────
+
+
+› 结合epoch,帮我分析下结果.
+
+
+• Context compacted
+
+• 我先读取最新 run 的 epoch 指标和配置，再和 run12/run15 做同口径对比。重点会看
+  PCK 曲线、val loss 对齐情况，以及 EVT gate/gamma 是否按预期学习。
+
+• Explored
+  └ List Evtformer
+    Search val.pck.pkl in Evtformer
+
+• Ran pwd && rg -n "range\(|train_dataset|val_dataset|dataset|data_path|run"
+  │ main.py config.py
+  └ (no output)
+
+───────────────────────────────────────────────────────────────────────────────
+
+• run16 已经有完整输出目录。刚才 find 的层级不够，我会直接按每个 epoch 子目录读
+  取 val.pck.pkl 和 loss，这样避免被 stats 汇总文件的旧结果误导。
+
+• Explored
+  └ Read config.py, main.py
+    List 16
+    List 16
+
+───────────────────────────────────────────────────────────────────────────────
+
+• 当前配置确认是 desk 数据集，main.py 指向 Evtformer/16。接下来我把 run16 的每
+  个 epoch PCK、loss 拉出来，并和同数据集的 run12、run15 对齐比较。
+
+• Explored
+  └ List python -c '
+         import os,pickle,numpy as np
+         base="out/train/model/Evtformer"
+         for run in [12,15,16]:
+             rows=[]
+             rdir=os.path.join(base,str(run))
+             if not os.path.isdir(rdir): continue
+             for name in os.listdir(rdir):
+                 if not name.startswith("epoch-"): continue
+                 ep=int(name.split("-")[1]); d=os.path.join(rdir,name)
+                 try:
+                     with open(os.path.join(d,"val.pck.pkl"),"rb") as f:
+         data=pickle.load(f)
+                     arr=np.asarray(data[0.2])
+                     joint=arr[-1].mean(axis=0)
+                     pck=float(joint.mean())
+
+         vloss=float(np.asarray(np.load(os.path.join(d,"val.loss.npy"))).mean()
+         )
+
+         tloss=float(np.asarray(np.load(os.path.join(d,"train.loss.npy"))).mean
+         ())
+                     rows.append((ep,pck,vloss,tloss,joint))
+                 except Exception as e:
+                     print("ERR",run,name,e)
+             rows.sort()
+             if not rows: continue
+             best=max(rows,key=lambda x:x[1]); minloss=min(rows,key=lambda
+             x:x[2]);
+         last=rows[-1]
+             print(f"RUN {run}: best ep{best[0]} pck {best[1]:.9f} val_loss
+         {best[2]:.6f} train_loss {best[3]:.6f}; minloss ep{minloss[0]} pck
+         {minloss[1]:.9f} val_loss {minloss[2]:.6f}; last ep{last[0]} pck
+         {last[1]:.9f} val_loss {last[2]:.6f}")
+             print("epoch,pck,val_loss,train_loss")
+             for ep,pck,vl,tl,j in rows:
+                 print(f"{ep:02d},{pck:.9f},{vl:.6f},{tl:.6f}")
+             print("best_joint", " ".join(f"{x:.6f}" for x in best[4]))
+             print()
+         '
+
+───────────────────────────────────────────────────────────────────────────────
+
+• 初步看 run16 已经把 run15 的崩塌基本修回来：best 从 0.8207 回到 0.9727，但仍
+  低于 run12 的 0.9848。我再检查 checkpoint 里的 EVT gamma、第二层 gate、
+  uncertainty 分支尺度，判断损失来自哪里。
+
+• Ran python -c '
+  │ import torch, os, math
+  │ base="out/train/model/Evtformer"
+  │ … +25 lines
+  └ RUN 12 ep17
+      module.evt.0.gamma: raw=-0.001375 sig_eff=0.299794 clamp_eff=0.000000
+    … +39 lines (ctrl + t to view transcript)
+    maxabs=1.425826
+
+
+───────────────────────────────────────────────────────────────────────────────
+
+• 参数检查显示这次低 gamma 生效了：run16 的 EVT gamma 被学到约 0.002，第二层
+  gate 只有 0.0148，说明模型仍倾向于“接近 B1，但保留一条很弱的第二层”。现在主要
+  问题不像 run15 那样是机制崩，而是收敛明显变慢，20 epoch 可能没跑到峰值。
+
+• Ran python -c '
+  │ import os,pickle,numpy as np
+  │ base="out/train/model/Evtformer"
+  │ … +9 lines
+  └ joint_idx,run12,run16,diff16-12,run15,diff16-15
+    00,0.984835,0.972657,-0.012178,0.820686,+0.151971
+    … +15 lines (ctrl + t to view transcript)
+    16,0.967093,0.959133,-0.007960,0.822315,+0.136818
+    17,0.970336,0.956581,-0.013755,0.799273,+0.157308
+
+───────────────────────────────────────────────────────────────────────────────
+
+• 关节分布也比较一致：run16 相比 run12 不是某个单点失败，而是全身统一低一截，尤
+  其下肢/末端关节差距更大。这更支持“收敛速度和正则扰动”问题，而不是某个后处理或
+  数据读取错误。
+
+• Ran python -c 'import pandas as pd; p="out/stats/master_pck.csv";
+  │ df=pd.read_csv(p); print(df.tail(40).to_string(index=False))'
+  └ Traceback (most recent call last):
+      File "<string>", line 1, in <module>
+    … +17 lines (ctrl + t to view transcript)
+    FileNotFoundError: [Errno 2] No such file or directory: 'out/stats/
+    master_pck.csv'
+
+───────────────────────────────────────────────────────────────────────────────
+
+• out/stats/master_pck.csv 现在不存在或被清理了，所以这次我以 run16/epoch-* 的
+  原始验证文件为准。这个口径比汇总 CSV 更可靠，也能直接定位哪个 epoch 最好。
+
+• Explored
+  └ Search *stats* in out
+    Search *pck*.csv in out
+
+• Ran python -c 'import pandas as pd; p="out/stats/pck@0.20/pck.csv";
+  │ df=pd.read_csv(p); print(df.tail(30).to_string(index=False))'
+  └ Unnamed: 0  IoU     Mean        0        1        2        3        4
+    5        6        7        8        9       10       11       12       13
+    … +8 lines (ctrl + t to view transcript)
+    0.946833 0.943862 0.913601 0.905864 0.886390 0.862152 0.951329 0.957962
+    0.951179 0.945844 0.917258 0.908266 0.961239
+
+■ stream disconnected before completion: error sending request for url
+(https://chatgpt.com/backend-api/codex/responses)
+
+
+› 继续
+
+
+• 我继续往下看两个点：一是 run16 在不同 PCK 阈值下是不是整体落后；二是 loss/PCK
+  曲线是否还在上升阶段。如果它还没到平台期，下一步就不应该急着再加复杂结构。
+
+• Ran git diff -- model/evtformer.py loss.py main.py config.py | sed -n
+  │ '1,260p'
+  └ diff --git a/loss.py b/loss.py
+    index 96615cb..448eecb 100644
+    … +257 lines (ctrl + t to view transcript)
+    +    # alter the coordinate baseline in this run.
+    +    refine_delta = torch.zeros_like(raw)
+
+• Ran python -c '
+  │ import pickle, numpy as np
+  │ base="out/train/model/Evtformer"
+  │ … +9 lines
+  └ RUN 12 ep17
+      @0.05: 0.673493
+    … +29 lines (ctrl + t to view transcript)
+      @0.45: 0.997737
+      @0.50: 0.998091
+
+• Explored
+  └ List python -c '
+         import os,pickle,numpy as np
+         base="out/train/model/Evtformer"
+         for run in [12,16]:
+             vals=[]
+             for name in os.listdir(f"{base}/{run}"):
+                 if name.startswith("epoch-"):
+                     ep=int(name.split("-")[1])
+                     with open(f"{base}/{run}/{name}/val.pck.pkl","rb") as f:
+         data=pickle.load(f)
+                     vals.append((ep,float(np.asarray(data[0.2])
+         [-1].mean(axis=0).mean())))
+             vals=sorted(vals)
+             print("RUN",run,"last5",[(ep,round(v,6)) for ep,v in
+         vals[-5:]],"delta_last",round(vals[-1][1]-vals[-2]
+         [1],6),"delta_17_19",round(vals[-1][1]-dict(vals).get(17, vals[-1]
+         [1]),6))
+         '
+
+───────────────────────────────────────────────────────────────────────────────
+
+• 一个关键细节：run16 的 @0.25/@0.30 已经很接近 run12，但 @0.05/@0.10 差得更
+  多。这说明它不是“完全找不到人”，而是坐标精度还偏粗，离 run12 的高精度收敛差一
+  段。
+
+───────────────────────────────────────────────────────────────────────────────
+
+• run16 的结果比 run15 明显修复了，但还没追上 run12。
+
+  核心结果：
+
+  - run12，B1 稳定版，desk：best epoch17，PCK@0.20 = 0.984835
+  - run15，gamma 修复前版本，desk：best epoch17，PCK@0.20 = 0.820686
+  - run16，当前低 gamma + 弱门控第二层 EVT + 不确定性辅助：best epoch19，
+    PCK@0.20 = 0.972657
+
+  结论是：当前改法已经把 run15 的问题基本修回来，但 run16 仍比 run12 低约 1.22
+  个 PCK 点。
+
+  更关键的是 epoch 曲线：
+
+  run16:
+  epoch16  0.873993
+  epoch17  0.960340
+  epoch18  0.970959
+  epoch19  0.972657
+
+  它在最后一个 epoch 仍然是最高点，val loss 也还在持续下降，所以 run16 不是过拟
+  合，而是收敛偏慢。相比 run12，run12 在 epoch17 达峰，后面反而下降；run16 到
+  epoch19 还没明显平台期。
+
+  从阈值看，run16 主要输在高精度定位：
+
+  PCK@0.05: run12 0.673493, run16 0.555534
+  PCK@0.10: run12 0.899061, run16 0.829723
+  PCK@0.20: run12 0.984835, run16 0.972657
+  PCK@0.30: run12 0.996543, run16 0.993720
+
+  也就是说大范围位置已经基本对了，但坐标还不够精细。不是检测彻底失败，而是“差一
+  点点准”。
+
+  参数状态也正常：
+
+  run16 epoch19:
+  primary gamma    ≈ 0.001886
+  secondary gamma  ≈ 0.002243
+  second gate      ≈ 0.014824
+
+  说明第二层 EVT 基本是很弱地参与，没有像 run13/run14 那样把模型带崩。当前主要
+  问题不是机制爆炸，而是弱第二层 + 极低 gamma 后，模型训练速度变慢。
+
+  我的判断：
+
+  1. run16 是稳定的，可以作为当前方向的有效版本。
+  2. 它没有超过 run12，主要是因为 20 epoch 不够，最后还在涨。
+  3. 下一步最合理不是继续加新模块，而是先把当前配置跑到 30 epoch，看它能否自然
+     追上或超过 run12。
+
+  4. 如果 30 epoch 后仍停在 0.973~0.976，再考虑把第二层 gate 初始值再压小，或者
+     把不确定性辅助权重从 0.01 降到 0.003。
+
+  另外，out/stats/pck@0.20/pck.csv 现在看起来不是这次 desk/run16 的汇总，它里面
+  的 evtformer = 0.990355 更像之前 obstacle/run10 的结果。所以这次分析我以 out/
+  train/model/Evtformer/16/epoch-* 的原始 epoch 文件为准。
+
+─ Worked for 2m 05s ───────────────────────────────────────────────────────────
+
+
+› 我想对比下,wp和B1,在pck0.30和0.2和PCK0.1和0.05的表现
+
+
+• 我按同一个数据集、同一个 epoch 原始 val.pck.pkl 口径来比。这里的 B1 我先按之
+  前确认的 Evtformer/run12，Wpformer 我会从现有 Wpformer 目录里找各 run 在
+  PCK@0.20 的最佳 epoch，再列出 0.05/0.10/0.20/0.30。
+
+• Explored
+  └ List python -c '
+         import os,pickle,numpy as np
+         def metric(path, thr):
+             with open(path,"rb") as f: data=pickle.load(f)
+             return float(np.asarray(data[thr])[-1].mean(axis=0).mean())
+         def scan(model, runs=None):
+             base=f"out/train/model/{model}"
+             out=[]
+             if not os.path.isdir(base): return out
+             for run in sorted(os.listdir(base), key=lambda x:int(x) if
+             x.isdigit()
+         else 9999):
+                 if runs is not None and int(run) not in runs: continue
+                 rdir=os.path.join(base,run)
+                 if not os.path.isdir(rdir): continue
+                 rows=[]
+                 for name in os.listdir(rdir):
+                     if name.startswith("epoch-"):
+                         ep=int(name.split("-")[1])
+                         p=os.path.join(rdir,name,"val.pck.pkl")
+                         if os.path.exists(p):
+                             rows.append((ep, metric(p,0.2), p))
+                 if rows:
+                     best=max(rows,key=lambda x:x[1])
+                     vals={thr: metric(best[2],thr) for thr in
+                     [0.05,0.1,0.2,0.3]}
+                     out.append((model,int(run),best[0],best[1],vals))
+             return out
+         for row in scan("Wpformer") + scan("Evtformer", [12]):
+             model,run,ep,best,vals=row
+             print(f"{model},
+
+         {run},best_ep={ep},best_pck020={best:.9f},pck005={vals[0.05]:.9f},pck0
+         10={
+         vals[0.1]:.9f},pck020={vals[0.2]:.9f},pck030={vals[0.3]:.9f}")
+         '
+
+───────────────────────────────────────────────────────────────────────────────
+
+• 现有 Wpformer 三个 run 的数值正好对应之前三个数据集的量级：Wpformer/0≈desk，
+  Wpformer/1≈noostruct，Wpformer/2≈obstacle。我再把 B1 的 run10/run11/run12 也
+  按同样阈值拉出来，方便逐数据集对比。
+
+• Explored
+  └ List python -c '
+         import os,pickle,numpy as np
+         def vals(model, run):
+             base=f"out/train/model/{model}/{run}"
+             rows=[]
+             for name in os.listdir(base):
+                 if name.startswith("epoch-"):
+                     ep=int(name.split("-")[1]); p=f"{base}/{name}/val.pck.pkl"
+                     if os.path.exists(p):
+                         with open(p,"rb") as f: data=pickle.load(f)
+                         p20=float(np.asarray(data[0.2])
+                         [-1].mean(axis=0).mean())
+                         rows.append((ep,p20,p))
+             ep,p20,p=max(rows,key=lambda x:x[1])
+             with open(p,"rb") as f: data=pickle.load(f)
+             return ep,{thr:float(np.asarray(data[thr])
+             [-1].mean(axis=0).mean())
+         for thr in [0.05,0.1,0.2,0.3]}
+         pairs=[("desk",("Wpformer",0),("Evtformer",12)),("noostruct",
+         ("Wpformer",1),("Evtformer",11)),("obstacle",("Wpformer",2),
+         ("Evtformer",10))]
+         for ds,wp,b1 in pairs:
+             we,wv=vals(*wp); be,bv=vals(*b1)
+             print(ds)
+             print(f"  WP {wp[1]} ep{we}: 0.05={wv[0.05]:.9f}
+             0.10={wv[0.1]:.9f}
+         0.20={wv[0.2]:.9f} 0.30={wv[0.3]:.9f}")
+             print(f"  B1 {b1[1]} ep{be}: 0.05={bv[0.05]:.9f}
+             0.10={bv[0.1]:.9f}
+         0.20={bv[0.2]:.9f} 0.30={bv[0.3]:.9f}")
+             print(f"  B1-WP:   0.05={bv[0.05]-wv[0.05]:+.9f}
+         0.10={bv[0.1]-wv[0.1]:+.9f} 0.20={bv[0.2]-wv[0.2]:+.9f}
+         0.30={bv[0.3]-wv[0.3]:+.9f}")
+         '
+
+───────────────────────────────────────────────────────────────────────────────
+
+• 按各自 PCK@0.20 最佳 epoch 对比，结果如下。
+
+   数据集       模型      best    PCK@0.05    PCK@0.10    PCK@0.20    PCK@0.30
+                         epoch
+  ━━━━━━━━━━━  ━━━━━━  ━━━━━━━━  ━━━━━━━━━━  ━━━━━━━━━━  ━━━━━━━━━━  ━━━━━━━━━━
+   desk           WP      ep18      0.5851      0.8507      0.9752      0.9936
+  ───────────  ──────  ────────  ──────────  ──────────  ──────────  ──────────
+   desk           B1      ep17      0.6735      0.8991      0.9848      0.9965
+  ───────────  ──────  ────────  ──────────  ──────────  ──────────  ──────────
+   noostruct      WP      ep19      0.6117      0.8798      0.9860      0.9977
+  ───────────  ──────  ────────  ──────────  ──────────  ──────────  ──────────
+   noostruct      B1      ep18      0.4697      0.7995      0.9767      0.9957
+  ───────────  ──────  ────────  ──────────  ──────────  ──────────  ──────────
+   obstacle       WP      ep16      0.7021      0.9240      0.9921      0.9986
+  ───────────  ──────  ────────  ──────────  ──────────  ──────────  ──────────
+   obstacle       B1      ep16      0.6582      0.9079      0.9904      0.9980
+
+  结论很清楚：
+
+  - desk 上 B1 明显优于 WP，尤其是严格阈值：
+      - PCK@0.05 高 +0.0884
+      - PCK@0.10 高 +0.0483
+      - PCK@0.20 高 +0.0097
+
+  - noostruct 上 WP 明显优于 B1：
+      - PCK@0.20 高 +0.0094
+
+  - obstacle 上 WP 也略优于 B1，但差距主要在严格阈值：
+      - PCK@0.05 高 +0.0439
+      - PCK@0.10 高 +0.0161
+      - PCK@0.20 只高 +0.0018
+  如果目标是三个数据集都高，后续优化重点应该不是再追 PCK@0.30，而是提升
+  PCK@0.05 / PCK@0.10，尤其是 noostruct。
+
+───────────────────────────────────────────────────────────────────────────────
+
+
+• Ran git status --short
+  └ (no output)
+
+• Explored
+  └ Read evtformer.py, loss.py, main.py
+  张量，没有不确定性和后处理分支。我继续看 TrainerEvtformer、数据路径和
+  DualToken/Sonnet 的稳定化改动，确认这是不是完整的 B1 代码。
+
+• Explored
+  └ Search class TrainerEvtformer|class TrainerWpformer|criterion|loss|
+  keypoints|
+           Evtformer in train.py
+    Read config.py, dual_token.py, sonnet_fusion.py
+
+───────────────────────────────────────────────────────────────────────────────
+
+• 我还需要看 dual_token.py 和 sonnet_fusion.py 后半段，因为那里通常有 residual
+  scale 的 clamp/abs 逻辑，会直接影响 B1 是否是之前的稳定版。
+
+• Explored
+  └ Read dual_token.py, sonnet_fusion.py, train.py
+    Search Evtformer|EvtformerV|Wpformer in my.py
+
+───────────────────────────────────────────────────────────────────────────────
+
+• 我已经看完当前版本，结论是：你现在确实回退到了一个接近 B1 稳定版 的代码状态。
+
+  当前代码状态：
+
+  - model/evtformer.py
+      - Evtformer 是：
+        DualToken -> ResNet34 三分支 -> SonnetFusion -> channel_reduce ->
+        upsample -> 1层 EVT -> decode -> keypoints
+
+      - num_evt_layers = 1
+      - gamma_init = 0.15
+      - StabilizedEVTSpatialAttention 使用：
+
+        gamma = self.gamma.clamp(0.0, self.gamma_max)
+
+      - 没有弱门控第二层 EVT
+      - 没有 uncertainty 分支
+      - 没有 coordinate postprocess
+      - forward 直接返回 [B, 17, 2]
+
+  - loss.py
+      - Wpformer loss 已回到纯 MSE：
+
+        loss = F.mse_loss(keypoints, keypointsT)
+
+      - 没有不确定性 loss
+      - 没有 dict output 兼容逻辑
+
+  - train.py
+      - TrainerEvtformer 只是继承 TrainerWpformer
+      - 训练流程是标准 keypoint MSE
+      - 有 clip_grad_norm_(..., max_norm=1.0)
+      - 没有额外 trainer 改动
+
+  - config.py
+      - 当前数据集路径是 desk：
+
+        /home/teacher2/文档/desk-chair-350-parse-preprocess/
+
+  - main.py
+      - 当前训练输出还是：
+
+        out/train/model/Evtformer/12
+
+      - 使用：
+
+  需要注意一个细节：dual_token.py 里还保留了之前的稳定化改动：
+
+  residual_scale = self.residual_scale.abs().clamp(max=0.15)
+  out = x + residual_scale * (enhanced - x)
+
+  所以这不是最原始 v8，而是“B1/稳定版路线”：单层 EVT + 纯 MSE + DualToken
+  residual 限幅。
+
+  当前版本可以作为稳定基线继续做实验。下一步如果要改，我建议不要再直接上
+  uncertainty/postprocess，先围绕 “noostruct 的 PCK@0.05 / 0.10 精度差” 做轻量
+  修改。
+
+───────────────────────────────────────────────────────────────────────────────
+
+
+› 我想先加弱门控第二层 EVT,先测试下结果,帮我改下代码.
+
+
+• 我会只改 Evtformer 本身：在当前单层 EVT 基线后面加一个“弱门控第二层 EVT”，不
+  动 loss 和 Trainer。为了避免覆盖现有 B1 的 run12，我也会把 main.py 的训练输出
+  切到一个新的 run。
+
+• Edited model/evtformer.py (+33 -2)
+     92
+     93 +class WeakGatedEVTStack(nn.Module):
+     94 +  """Keep the B1 first EVT block and add a bounded residual second blo
+         ck."""
+     95 +
+     96 +  def __init__(
+     97 +    self,
+     98 +    channels: int,
+     99 +    heads: int,
+    100 +    gamma_init: float,
+    101 +    second_gate_init: float = -3.0,
+    102 +    second_gate_max: float = 0.25,
+    103 +  ):
+    104 +    super().__init__()
+    105 +    self.primary = StabilizedEVTSpatialAttention(
+    106 +      channels=channels,
+    107 +      num_heads=heads,
+    108 +      gamma_init=gamma_init,
+    109 +    )
+    110 +    self.secondary = StabilizedEVTSpatialAttention(
+    111 +      channels=channels,
+    112 +      num_heads=heads,
+    113 +      gamma_init=gamma_init,
+    114 +    )
+    115 +    self.second_gate_logit = nn.Parameter(torch.tensor(second_gate_ini
+         t))
+    116 +    self.second_gate_max = second_gate_max
+    117 +
+    118 +  def forward(self, x: torch.Tensor) -> torch.Tensor:
+    119 +    x = self.primary(x)
+    120 +    secondary = self.secondary(x)
+    121 +    gate = self.second_gate_max * torch.sigmoid(self.second_gate_logit
+         )
+    122 +    return x + gate * (secondary - x)
+    123 +
+    124 +
+    125  class Evtformer(nn.Module):
+        ⋮
+    134      gamma_init: float = 0.15
+    103 -    num_evt_layers: int = 1
+    135      n_atoms: int = 32
+        ⋮
+    175      # ---- EVT spatial attention stack ----
+    145 -    self.evt = _make_evt_stack(evt_channels, evt_heads, gamma_init, nu
+         m_evt_layers)
+    176 +    self.evt = WeakGatedEVTStack(evt_channels, evt_heads, gamma_init)
+    177
+
+───────────────────────────────────────────────────────────────────────────────
+
+• Evtformer 已经改成 primary EVT + weak gated secondary EVT，输出仍然是原来的
+  keypoints 张量。接下来我把训练输出从 run12 改到新目录，避免覆盖你之前的 B1 结
+  果。
+
+• Edited main.py (+1 -1)
+    107
+    108 -for i in range(12, 13):
+    108 +for i in range(17, 18):
+    109    model = "Evtformer"
+
+───────────────────────────────────────────────────────────────────────────────
+
+• 我现在做语法检查和一个轻量参数检查，确认 gate 初始值是很小的，且没有引入
+  Trainer/loss 兼容问题。
+
+• Ran git diff -- model/evtformer.py main.py | sed -n '1,220p'
+  └ diff --git a/main.py b/main.py
+    index a434453..fa5995c 100644
+    … +70 lines (ctrl + t to view transcript)
+         # ---- Normalization ----
+         self.bn2 = nn.BatchNorm2d(evt_channels)
+
+• Ran python -m py_compile model/evtformer.py main.py loss.py train.py
+  └ (no output)
+
+• Ran python -c 'import torch, math; from model.evtformer import
+  │ WeakGatedEVTStack; m=WeakGatedEVTStack(128,4,0.15); print("gate",
+  │ float((m.second_gate_max*torch.sigmoid(m.second_gate_logit)).detach()));
+  │ … +2 lines
+  └ gate 0.01185646839439869
+    primary_gamma 0.15000000596046448
+    secondary_gamma 0.15000000596046448
+
+───────────────────────────────────────────────────────────────────────────────
+
+• 已改好。
+
+  这次只做了两处改动：
+
+  1. 在 model/evtformer.py 里把原来的单层 EVT：
+
+  self.evt = _make_evt_stack(...)
+
+  替换成：
+
+  self.evt = WeakGatedEVTStack(evt_channels, evt_heads, gamma_init)
+
+  实现逻辑是：
+
+  x = primary_evt(x)
+  secondary = secondary_evt(x)
+  gate = 0.25 * sigmoid(second_gate_logit)
+  x = x + gate * (secondary - x)
+
+  初始 gate 约等于：
+
+  0.011856
+
+  也就是第二层 EVT 初始只占大约 1.2%，不会一开始强行破坏 B1。
+
+  2. 在 main.py 里把输出 run 从 12 改成了 17：
+
+  for i in range(17, 18):
+  这样你运行：
+
+  python main.py
+
+  out/train/model/Evtformer/17
+
+  不会覆盖之前的 B1/run12。
+
+  我也检查过：
+
+  python -m py_compile model/evtformer.py main.py loss.py train.py
+
+  通过。loss 和 Trainer 没动，仍然是纯 MSE + TrainerEvtformer 继承
+  TrainerWpformer。
+
+───────────────────────────────────────────────────────────────────────────────
+
+
+› 你好,我现在想关闭下codex,再重新打开.我需要保存所以历史会话,请你告诉我该怎么
+  做?
+
+
+• 可以。一般不需要你手动保存代码改动，文件已经写在项目目录里了。但如果你想保存
+  会话上下文/历史记录，建议这样做：
+
+  1. 先确认代码改动还在：
+
+  cd /home/teacher2/文档/wipe_original
+  git status --short
+
+  2. 保存当前改动到 git，方便重新打开后继续：
+
+  git add model/evtformer.py main.py
+  git commit -m "Add weak gated second EVT block"
+
+  如果你暂时不想提交，也可以保存成补丁：
+
+  git diff > codex-session-changes.patch
+
+  3. 保存会话要点到一个文本文件，例如：
+
+  cat > codex-notes.txt
+
+  然后把下面这段复制进去，按 Ctrl+D 结束：
+
+  当前项目: /home/teacher2/文档/wipe_original
+
+  当前代码状态:
+  - Evtformer 已在 B1 基础上加入弱门控第二层 EVT。
+  - loss.py 未改，仍是纯 MSE。
+  - Trainer 未改，TrainerEvtformer 继承 TrainerWpformer。
+  - main.py 当前输出 run17。
+  - 当前数据集路径是 desk:
+    /home/teacher2/文档/desk-chair-350-parse-preprocess/
+
+  - B1 noostruct run11 best ep18 PCK@0.20 = 0.976675
+  - B1 obstacle run10 best ep16 PCK@0.20 = 0.990355
+  - WP desk run0 PCK@0.20 = 0.975168
+  - WP noostruct run1 PCK@0.20 = 0.986034
+  - WP obstacle run2 PCK@0.20 = 0.992122
+
+  最近改动:
+  - model/evtformer.py 新增 WeakGatedEVTStack
+  - 第二层 EVT gate 初始约 0.011856
+  - main.py 从 run12 改为 run17
+
+  4. 重新打开 Codex 后，你可以直接说：
+
+  请读取 /home/teacher2/文档/wipe_original/codex-notes.txt，并继续分析 run17。
+
+  如果你使用的是同一个 Codex 环境，很多时候历史会话本身会保留；但最稳妥的是同时
+  保存 git commit 或 git diff，再保存一份 codex-notes.txt。
+
+
+› 不是,我的意思是保存我和你的历史会话,也就算我们的聊天记录
+
+
+• 我这边不能直接导出或保存整段聊天记录到本地文件，聊天记录通常由你使用的 Codex/
+  ChatGPT 客户端负责保存。
+
+  你可以用这几种方式：
+
+  1. 最稳妥：不要删除当前会话
+      - 直接关闭 Codex 窗口/终端。
+      - 重新打开后，如果客户端支持历史会话，一般可以从历史记录里继续打开。
+
+
+  重点是：代码文件会保留在项目目录里，但聊天记录是否保留取决于你使用的 Codex 客
+  户端。关闭窗口通常不会影响项目文件，但不要主动删除会话或清空历史。
+
+
+› gedit codex-chat-history.txt
+
+
+✔ You approved codex to run gedit codex-chat-history.txt this time
+
+• Running gedit codex-chat-history.txt
+
+• gedit codex-chat-history.txt 已经启动了。
+
+  你可以把聊天记录复制进去保存。文件位置是：
+
+  /home/teacher2/文档/wipe_original/codex-chat-history.txt
+
+ 
+› Explain this codebase
+ 
+  gpt-5.5 default · ~/文档/wipe_original
+

@@ -90,6 +90,38 @@ class StabilizedEVTSpatialAttention(EVTSpatialAttention):
     return out
 
 
+class WeakGatedEVTStack(nn.Module):
+  """Keep the B1 first EVT block and add a bounded residual second block."""
+
+  def __init__(
+    self,
+    channels: int,
+    heads: int,
+    gamma_init: float,
+    second_gate_init: float = -3.0,
+    second_gate_max: float = 0.25,
+  ):
+    super().__init__()
+    self.primary = StabilizedEVTSpatialAttention(
+      channels=channels,
+      num_heads=heads,
+      gamma_init=gamma_init,
+    )
+    self.secondary = StabilizedEVTSpatialAttention(
+      channels=channels,
+      num_heads=heads,
+      gamma_init=gamma_init,
+    )
+    self.second_gate_logit = nn.Parameter(torch.tensor(second_gate_init))
+    self.second_gate_max = second_gate_max
+
+  def forward(self, x: torch.Tensor) -> torch.Tensor:
+    x = self.primary(x)
+    secondary = self.secondary(x)
+    gate = self.second_gate_max * torch.sigmoid(self.second_gate_logit)
+    return x + gate * (secondary - x)
+
+
 class Evtformer(nn.Module):
   """WiFi Pose: Sonnet Wavelet-Coh-Koopman + EVT Spatial Refinement."""
 
@@ -100,7 +132,6 @@ class Evtformer(nn.Module):
     evt_channels: int = 128
     evt_heads: int = 4
     gamma_init: float = 0.15
-    num_evt_layers: int = 1
     n_atoms: int = 32
     up_h: int = 17
     up_w: int = 24
@@ -142,7 +173,7 @@ class Evtformer(nn.Module):
     self.spatial_upsample = nn.Upsample((up_h, up_w), mode="bilinear")
 
     # ---- EVT spatial attention stack ----
-    self.evt = _make_evt_stack(evt_channels, evt_heads, gamma_init, num_evt_layers)
+    self.evt = WeakGatedEVTStack(evt_channels, evt_heads, gamma_init)
 
     # ---- Normalization ----
     self.bn2 = nn.BatchNorm2d(evt_channels)

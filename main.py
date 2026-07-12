@@ -105,7 +105,7 @@ inferConfList: list[config.Infer] = [
 #     )
 #   )
 
-for i in range(12, 13):
+for i in range(19, 20):
   model = "Evtformer"
   trianConfList.append(
     config.Train(
