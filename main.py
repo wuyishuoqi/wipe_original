@@ -48,7 +48,7 @@ inferConfList: list[config.Infer] = [
   #   model="EvtformerV7", fusion="none",
   #   weightsFile=r"out/train/model/Evtformer/5/epoch-19/weights.pt",
   #   outDir="infer/evt-v7-desk-chair",
-  # ),
+  # ),低验
   config.Infer(
     model="Evtformer", fusion="none",
     weightsFile=r"out/train/model/Evtformer/9/epoch-19/weights.pt",
@@ -93,7 +93,7 @@ inferConfList: list[config.Infer] = [
 #     )
 #   )
 
-# for i in range(1, 2):
+# for i in range(2, 3):
 #   model = "Wisppn"
 #   trianConfList.append(
 #     config.Train(
@@ -105,7 +105,7 @@ inferConfList: list[config.Infer] = [
 #     )
 #   )
 
-for i in range(19, 20):
+for i in range(21, 22):
   model = "Evtformer"
   trianConfList.append(
     config.Train(
@@ -118,14 +118,14 @@ for i in range(19, 20):
   )
 
 
-# for i in range(10):
+# for i in range(2, 3):
 #   model = "Wpnet"
 #   trianConfList.append(
 #     config.Train(
 #       outDir=f"train/model/{model}/{i}",
 #       fusion="none",
 #       model=model,
-#       batchSize=90,
+#       batchSize=24,
 #     )
 #   )
 
@@ -180,7 +180,7 @@ if __name__ == "__main__":
 
   # Trainer = train.Trainer
   # Trainer = train.TrainerWpformer
-  # Trainer = train.TrainerWisppn
+  # Trainer = train.TrainerWpnet
   Trainer = train.TrainerEvtformer
 
   # if cliArgs.val:

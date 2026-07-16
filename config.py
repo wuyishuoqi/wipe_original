@@ -25,7 +25,7 @@ class Pre:
   # rawDir: str = r"/root/docker/data/CSI with frames (2023-11)/FramesRaw/free-small-2.4g"
   rawFrameTimestampFile: str = "rgb.timestamp.txt"
 
-  parsedDir: str = r"/home/teacher2/文档/obstacle-no-zhedang/"
+  parsedDir: str = r"/home/teacher2/文档/desk-chair-350-parse-preprocess/"
   # parsedDir: str = r"/root/docker/data/CSI with frames (2023-11)/parsed/free-small-2.4g"
   parsedStatsDir: str = "stats"
   parsedAlignedFrameTimestampFile: str = "frame.timestamp.npy"

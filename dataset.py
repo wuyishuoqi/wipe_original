@@ -239,7 +239,6 @@ class TrainWpnet(Train):
   def __getitem__(self, idx) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     csi = super()._getCsi(idx)
 
-    print(csi.shape)
     bbox, _ = self._getDetectron2(idx)
     keypoints = self._getKeypointsFromMmpose(idx)
     factor = np.array(((1,) + config.Global.scaleFactor))
