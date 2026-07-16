@@ -3,6 +3,8 @@ from model.wpnet import Wpnet
 from model.wisppn import Wisppn
 from model.wpformer import Wpformer
 from model.evtformer import Evtformer
+from model.evtformer_b1 import EvtformerB1
+from model.evtformer_v8 import EvtformerV8
 from model.evtformer_v4 import EvtformerV4
 from model.evtformer_v7 import EvtformerV7
 

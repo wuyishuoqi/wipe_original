@@ -87,12 +87,14 @@ class TimeFreqDualToken(nn.Module):
     d_model: int = 128,
     n_heads: int = 4,
     n_layers: int = 2,
+    stabilize_residual: bool = True,
   ):
     super().__init__()
     self.n_timesteps = n_timesteps
     self.n_subcarriers = n_subcarriers
     self.n_antennas = n_antennas
     self.d_model = d_model
+    self.stabilize_residual = stabilize_residual
 
     time_in_dim = n_subcarriers * n_antennas      # 114 * 3 = 342
     freq_in_dim = n_timesteps * n_antennas         # 9 * 3 = 27
@@ -264,6 +266,8 @@ class TimeFreqDualToken(nn.Module):
     fused_grid = gate * time_grid + (1.0 - gate) * freq_grid
     enhanced = self.grid_out(fused_grid)
 
-    residual_scale = self.residual_scale.abs().clamp(max=0.15)
+    residual_scale = self.residual_scale
+    if self.stabilize_residual:
+      residual_scale = residual_scale.abs().clamp(max=0.15)
     out = x + residual_scale * (enhanced - x)
     return out

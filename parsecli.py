@@ -21,7 +21,10 @@ def parseCli():
   )
   parser.add_argument(
     "-m", "--model", type=str, default="Wpformer",
-    choices=["Unet3x3", "Piw", "Wpnet", "Wpformer", "Wisppn", "Evtformer", "EvtformerV4", "EvtformerV7"],
+    choices=[
+      "Unet3x3", "Piw", "Wpnet", "Wpformer", "Wisppn",
+      "Evtformer", "EvtformerB1", "EvtformerV4", "EvtformerV7", "EvtformerV8",
+    ],
     help="选择模型架构 (默认: Wpformer)"
   )
   args = parser.parse_args()

@@ -117,6 +117,32 @@ for i in range(21, 22):
     )
   )
 
+# Historical Evtformer ablations. Enable one block and select its matching
+# Trainer below when a controlled v8/B1 rerun is needed.
+# for i in range(0, 1):
+#   model = "EvtformerV8"
+#   trianConfList.append(
+#     config.Train(
+#       outDir=f"train/model/{model}/{i}",
+#       nTimestep=9,
+#       fusion="none",
+#       model=model,
+#       batchSize=24,
+#     )
+#   )
+
+# for i in range(0, 1):
+#   model = "EvtformerB1"
+#   trianConfList.append(
+#     config.Train(
+#       outDir=f"train/model/{model}/{i}",
+#       nTimestep=9,
+#       fusion="none",
+#       model=model,
+#       batchSize=24,
+#     )
+#   )
+
 
 # for i in range(2, 3):
 #   model = "Wpnet"
@@ -182,6 +208,8 @@ if __name__ == "__main__":
   # Trainer = train.TrainerWpformer
   # Trainer = train.TrainerWpnet
   Trainer = train.TrainerEvtformer
+  # Trainer = train.TrainerEvtformerV8
+  # Trainer = train.TrainerEvtformerB1
 
   # if cliArgs.val:
   #   for conf in tqdm(valConfList, desc="Conf"):
