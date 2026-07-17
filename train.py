@@ -232,6 +232,9 @@ class Trainer:
       "Wpformer",
       "Evtformer",
       "EvtformerB1",
+      "EvtformerNoDual",
+      "EvtformerNoEVT",
+      "EvtformerNoSonnet",
       "EvtformerV4",
       "EvtformerV7",
       "EvtformerV8",
@@ -978,6 +981,21 @@ class TrainerEvtformer(TrainerWpformer):
 
 class TrainerEvtformerB1(TrainerWpformer):
   """Trainer for the historical single-EVT B1 model."""
+  pass
+
+
+class TrainerEvtformerNoDual(TrainerWpformer):
+  """Trainer for the weak-gated Evtformer without DualToken."""
+  pass
+
+
+class TrainerEvtformerNoSonnet(TrainerWpformer):
+  """Trainer for the weak-gated Evtformer without SonnetFusion."""
+  pass
+
+
+class TrainerEvtformerNoEVT(TrainerWpformer):
+  """Trainer for the Evtformer feature route without EVT refinement."""
   pass
 
 

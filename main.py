@@ -105,8 +105,32 @@ inferConfList: list[config.Infer] = [
 #     )
 #   )
 
-for i in range(21, 22):
-  model = "Evtformer"
+# for i in range(21, 22):
+#   model = "Evtformer"
+#   trianConfList.append(
+#     config.Train(
+#       outDir=f"train/model/{model}/{i}",
+#       nTimestep=9,
+#       fusion="none",
+#       model=model,
+#       batchSize=24,
+#     )
+#   )
+
+# for i in range(1):
+#   model = "EvtformerNoDual"
+#   trianConfList.append(
+#     config.Train(
+#       outDir=f"train/model/{model}/{i}",
+#       nTimestep=9,
+#       fusion="none",
+#       model=model,
+#       batchSize=24,
+#     )
+#   )
+
+for i in range(1):
+  model = "EvtformerNoSonnet"
   trianConfList.append(
     config.Train(
       outDir=f"train/model/{model}/{i}",
@@ -116,6 +140,18 @@ for i in range(21, 22):
       batchSize=24,
     )
   )
+
+# for i in range(1):
+#   model = "EvtformerNoEVT"
+#   trianConfList.append(
+#     config.Train(
+#       outDir=f"train/model/{model}/{i}",
+#       nTimestep=9,
+#       fusion="none",
+#       model=model,
+#       batchSize=24,
+#     )
+#   )
 
 # Historical Evtformer ablations. Enable one block and select its matching
 # Trainer below when a controlled v8/B1 rerun is needed.
@@ -207,7 +243,10 @@ if __name__ == "__main__":
   # Trainer = train.Trainer
   # Trainer = train.TrainerWpformer
   # Trainer = train.TrainerWpnet
-  Trainer = train.TrainerEvtformer
+  # Trainer = train.TrainerEvtformer
+  # Trainer = train.TrainerEvtformerNoDual
+  Trainer = train.TrainerEvtformerNoSonnet
+  # Trainer = train.TrainerEvtformerNoEVT
   # Trainer = train.TrainerEvtformerV8
   # Trainer = train.TrainerEvtformerB1
 
