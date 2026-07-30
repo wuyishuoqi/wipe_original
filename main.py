@@ -129,11 +129,188 @@ inferConfList: list[config.Infer] = [
 #     )
 #   )
 
-for i in range(1):
-  model = "EvtformerNoSonnet"
+# for i in range(1, 2):
+#   model = "EvtformerNoSonnet"
+#   trianConfList.append(
+#     config.Train(
+#       outDir=f"train/model/{model}/{i}",
+#       datasetDir=r"/home/teacher2/文档/noostruct-dataset/",
+#       nTimestep=9,
+#       fusion="none",
+#       model=model,
+#       batchSize=24,
+#     )
+#   )
+
+# for i in range(1, 2):
+#   model = "EvtformerTwo"
+#   trianConfList.append(
+#     config.Train(
+#       outDir=f"train/model/{model}/{i}",
+#       datasetDir=r"/home/teacher2/文档/noostruct-dataset/",
+#       nTimestep=9,
+#       fusion="none",
+#       model=model,
+#       batchSize=24,
+#     )
+#   )
+
+# for i in range(1, 2):
+#   model = "EvtformerThree"
+#   trianConfList.append(
+#     config.Train(
+#       outDir=f"train/model/{model}/{i}",
+#       datasetDir=r"/home/teacher2/文档/noostruct-dataset/",
+#       nTimestep=9,
+#       fusion="none",
+#       model=model,
+#       batchSize=24,
+#     )
+#   )
+
+# for i in range(1, 2):
+#   model = "EvtformerFour"
+#   trianConfList.append(
+#     config.Train(
+#       outDir=f"train/model/{model}/{i}",
+#       datasetDir=r"/home/teacher2/文档/noostruct-dataset/",
+#       nTimestep=9,
+#       fusion="none",
+#       model=model,
+#       batchSize=24,
+#     )
+#   )
+
+# for i in range(1, 2):
+#   model = "ThreeTestOne"
+#   trianConfList.append(
+#     config.Train(
+#       outDir=f"train/model/{model}/{i}",
+#       datasetDir=r"/home/teacher2/文档/noostruct-dataset/",
+#       nTimestep=9,
+#       fusion="none",
+#       model=model,
+#       batchSize=24,
+#     )
+#   )
+
+# for i in range(1, 2):
+#   model = "EvtformerFive"
+#   trianConfList.append(
+#     config.Train(
+#       outDir=f"train/model/{model}/{i}",
+#       datasetDir=r"/home/teacher2/文档/noostruct-dataset/",
+#       nTimestep=9,
+#       fusion="none",
+#       model=model,
+#       batchSize=24,
+#     )
+#   )
+
+# for i in range(1, 2):
+#   model = "EvtformerSix"
+#   trianConfList.append(
+#     config.Train(
+#       outDir=f"train/model/{model}/{i}",
+#       datasetDir=r"/home/teacher2/文档/noostruct-dataset/",
+#       nTimestep=9,
+#       fusion="none",
+#       model=model,
+#       batchSize=24,
+#     )
+#   )
+
+# Hreformer V1 on Noostruct, run 1.
+# for i in range(1, 2):
+#   model = "Hreformer"
+#   trianConfList.append(
+#     config.Train(
+#       outDir=f"train/model/{model}/{i}",
+#       datasetDir=r"/home/teacher2/文档/noostruct-dataset/",
+#       nTimestep=9,
+#       fusion="none",
+#       model=model,
+#       batchSize=24,
+#     )
+#   )
+
+# HreformerV2 on Noostruct, run 1.
+# for i in range(1, 2):
+#   model = "HreformerV2"
+#   trianConfList.append(
+#     config.Train(
+#       outDir=f"train/model/{model}/{i}",
+#       datasetDir=r"/home/teacher2/文档/noostruct-dataset/",
+#       nTimestep=9,
+#       fusion="none",
+#       model=model,
+#       batchSize=24,
+#     )
+#   )
+
+# HreformerV3 on Noostruct, run 1.
+# for i in range(1, 2):
+#   model = "HreformerV3"
+#   trianConfList.append(
+#     config.Train(
+#       outDir=f"train/model/{model}/{i}",
+#       datasetDir=r"/home/teacher2/文档/noostruct-dataset/",
+#       nTimestep=9,
+#       fusion="none",
+#       model=model,
+#       batchSize=24,
+#     )
+#   )
+
+# HreformerV4 on Noostruct, run 1.
+# for i in range(1, 2):
+#   model = "HreformerV4"
+#   trianConfList.append(
+#     config.Train(
+#       outDir=f"train/model/{model}/{i}",
+#       datasetDir=r"/home/teacher2/文档/noostruct-dataset/",
+#       nTimestep=9,
+#       fusion="none",
+#       model=model,
+#       batchSize=24,
+#     )
+#   )
+
+# HreformerV5 on Noostruct, run 1.
+# for i in range(1, 2):
+#   model = "HreformerV5"
+#   trianConfList.append(
+#     config.Train(
+#       outDir=f"train/model/{model}/{i}",
+#       datasetDir=r"/home/teacher2/文档/noostruct-dataset/",
+#       nTimestep=9,
+#       fusion="none",
+#       model=model,
+#       batchSize=24,
+#     )
+#   )
+
+# HreformerV6 on Noostruct, run 1.
+# for i in range(1, 2):
+#   model = "HreformerV6"
+#   trianConfList.append(
+#     config.Train(
+#       outDir=f"train/model/{model}/{i}",
+#       datasetDir=r"/home/teacher2/文档/noostruct-dataset/",
+#       nTimestep=9,
+#       fusion="none",
+#       model=model,
+#       batchSize=24,
+#     )
+#   )
+
+# HreformerV7 on Obstacle, run 2.
+for i in range(2, 3):
+  model = "HreformerV7"
   trianConfList.append(
     config.Train(
       outDir=f"train/model/{model}/{i}",
+      datasetDir=r"/home/teacher2/文档/obstacle-no-zhedang/",
       nTimestep=9,
       fusion="none",
       model=model,
@@ -147,6 +324,18 @@ for i in range(1):
 #     config.Train(
 #       outDir=f"train/model/{model}/{i}",
 #       nTimestep=9,
+#       fusion="none",
+#       model=model,
+#       batchSize=24,
+#     )
+#   )
+
+# for i in range(1):
+#   model = "EvtSsd"
+#   trianConfList.append(
+#     config.Train(
+#       outDir=f"train/model/{model}/{i}",
+#       nTimestep=15,
 #       fusion="none",
 #       model=model,
 #       batchSize=24,
@@ -245,8 +434,22 @@ if __name__ == "__main__":
   # Trainer = train.TrainerWpnet
   # Trainer = train.TrainerEvtformer
   # Trainer = train.TrainerEvtformerNoDual
-  Trainer = train.TrainerEvtformerNoSonnet
+  # Trainer = train.TrainerEvtformerNoSonnet
   # Trainer = train.TrainerEvtformerNoEVT
+  # Trainer = train.TrainerEvtSsd
+  # Trainer = train.TrainerEvtformerTwo
+  # Trainer = train.TrainerEvtformerThree
+  # Trainer = train.TrainerEvtformerFour
+  # Trainer = train.TrainerThreeTestOne
+  # Trainer = train.TrainerEvtformerFive
+  # Trainer = train.TrainerEvtformerSix
+  # Trainer = train.TrainerHreformer
+  # Trainer = train.TrainerHreformerV2
+  # Trainer = train.TrainerHreformerV3
+  # Trainer = train.TrainerHreformerV4
+  # Trainer = train.TrainerHreformerV5
+  # Trainer = train.TrainerHreformerV6
+  Trainer = train.TrainerHreformerV7
   # Trainer = train.TrainerEvtformerV8
   # Trainer = train.TrainerEvtformerB1
 

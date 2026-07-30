@@ -235,6 +235,20 @@ class Trainer:
       "EvtformerNoDual",
       "EvtformerNoEVT",
       "EvtformerNoSonnet",
+      "EvtSsd",
+      "EvtformerTwo",
+      "EvtformerThree",
+      "EvtformerFour",
+      "ThreeTestOne",
+      "EvtformerFive",
+      "EvtformerSix",
+      "Hreformer",
+      "HreformerV2",
+      "HreformerV3",
+      "HreformerV4",
+      "HreformerV5",
+      "HreformerV6",
+      "HreformerV7",
       "EvtformerV4",
       "EvtformerV7",
       "EvtformerV8",
@@ -636,6 +650,16 @@ class TrainerWpnet(Trainer):
 
 
 class TrainerWpformer(Trainer):
+  def _getCriterion(self):
+    return loss_.Wpformer(self.device)
+
+  def _setCriterionEpoch(self, epoch: int):
+    if hasattr(self.criterion, "set_epoch"):
+      self.criterion.set_epoch(epoch)
+
+  def _computeLoss(self, prediction, target, bbox):
+    return self.criterion(prediction, target)
+
   def _saveTrain(self, outDir: Path):
     # Save
     outDir.mkdir(parents=True, exist_ok=True)
@@ -667,7 +691,7 @@ class TrainerWpformer(Trainer):
   def train(self):
     self._initTrain()
 
-    self.criterion = loss_.Wpformer(self.device)
+    self.criterion = self._getCriterion()
 
     # AMP disabled due to NaN on this dataset
     use_amp = False
@@ -675,13 +699,14 @@ class TrainerWpformer(Trainer):
     self.model.train()
     iter = 0
     for epoch in trange(self.conf.nEpoch, desc="Epoch", leave=True, position=0):
+      self._setCriterionEpoch(epoch)
       self.epochIdxList.append(iter)
       np.save(self.outDir / "epoch.idx.npy", self.epochIdxList)
 
       # Train
       with tqdm(total=self.nBatch, desc="Train", leave=False, position=1) as pbar:
         for i, batch in enumerate(self.trainLoader):
-          x, keypointsT, _ = batch
+          x, keypointsT, bbox = batch
           x, keypointsT = (
             x.to(self.device),
             keypointsT.to(self.device),
@@ -689,7 +714,7 @@ class TrainerWpformer(Trainer):
 
           self.optimizer.zero_grad()
           y = self.model(x)
-          loss, lossVal = self.criterion(y, keypointsT)
+          loss, lossVal = self._computeLoss(y, keypointsT, bbox)
 
           loss.backward()
           torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
@@ -733,7 +758,7 @@ class TrainerWpformer(Trainer):
           )
 
           y = self.model(x)
-          _, lossVal = self.criterion(y, keypointsT)
+          _, lossVal = self._computeLoss(y, keypointsT, bbox)
           batchLossList.append(lossVal)
 
           batchSize = bbox.shape[0]
@@ -996,6 +1021,92 @@ class TrainerEvtformerNoSonnet(TrainerWpformer):
 
 class TrainerEvtformerNoEVT(TrainerWpformer):
   """Trainer for the Evtformer feature route without EVT refinement."""
+  pass
+
+
+class TrainerEvtSsd(TrainerWpformer):
+  """Trainer for the SSD-conditioned weak-gated Evtformer."""
+  pass
+
+
+class TrainerEvtformerTwo(TrainerWpformer):
+  """Trainer for the detail-preserving second-generation Evtformer."""
+  pass
+
+
+class TrainerEvtformerThree(TrainerWpformer):
+  """Trainer for EvtformerThree with strict coordinate refinement loss."""
+
+  def _getCriterion(self):
+    return loss_.EvtformerThree(self.device)
+
+
+class TrainerEvtformerFour(TrainerWpformer):
+  """Trainer for grouped strict-coordinate EvtformerFour."""
+
+  def _getCriterion(self):
+    return loss_.EvtformerFour(self.device)
+
+
+class TrainerThreeTestOne(TrainerWpformer):
+  """Trainer for grouped-head ablation with the original Three loss."""
+
+  def _getCriterion(self):
+    return loss_.EvtformerThree(self.device)
+
+
+class TrainerEvtformerFive(TrainerWpformer):
+  """Trainer for EvtformerFive with curriculum PCK-aligned loss."""
+
+  def _getCriterion(self):
+    return loss_.EvtformerFive(self.device)
+
+  def _computeLoss(self, prediction, target, bbox):
+    return self.criterion(prediction, target, bbox)
+
+
+class TrainerEvtformerSix(TrainerWpformer):
+  """Trainer for delayed, gentle PCK-aligned EvtformerSix."""
+
+  def _getCriterion(self):
+    return loss_.EvtformerSix(self.device)
+
+  def _computeLoss(self, prediction, target, bbox):
+    return self.criterion(prediction, target, bbox)
+
+
+class TrainerHreformer(TrainerWpformer):
+  """Trainer for Sonnet-free Hreformer V1 with relative antenna fusion."""
+  pass
+
+
+class TrainerHreformerV2(TrainerWpformer):
+  """Trainer for dual-resolution HreformerV2."""
+  pass
+
+
+class TrainerHreformerV3(TrainerWpformer):
+  """Trainer for constrained dual-resolution HreformerV3."""
+  pass
+
+
+class TrainerHreformerV4(TrainerWpformer):
+  """Trainer for post-EVT detail-residual HreformerV4."""
+  pass
+
+
+class TrainerHreformerV5(TrainerWpformer):
+  """Trainer for RMS-aligned detail-residual HreformerV5."""
+  pass
+
+
+class TrainerHreformerV6(TrainerWpformer):
+  """Trainer for joint-token graph-refined HreformerV6."""
+  pass
+
+
+class TrainerHreformerV7(TrainerWpformer):
+  """Trainer for RMS-limited joint-token graph HreformerV7."""
   pass
 
 
