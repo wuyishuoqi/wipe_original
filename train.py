@@ -249,6 +249,12 @@ class Trainer:
       "HreformerV5",
       "HreformerV6",
       "HreformerV7",
+      "HreformerV8",
+      "HreformerV9",
+      "HreformerV10",
+      "HreformerV10NoDual",
+      "HreformerV10NoRAF",
+      "HreformerV10NoGraph",
       "EvtformerV4",
       "EvtformerV7",
       "EvtformerV8",
@@ -657,6 +663,12 @@ class TrainerWpformer(Trainer):
     if hasattr(self.criterion, "set_epoch"):
       self.criterion.set_epoch(epoch)
 
+  def _setOptimizerEpoch(self, epoch: int):
+    pass
+
+  def _setModelTrainMode(self, epoch: int):
+    self.model.train()
+
   def _computeLoss(self, prediction, target, bbox):
     return self.criterion(prediction, target)
 
@@ -696,10 +708,12 @@ class TrainerWpformer(Trainer):
     # AMP disabled due to NaN on this dataset
     use_amp = False
 
-    self.model.train()
+    self._setModelTrainMode(0)
     iter = 0
     for epoch in trange(self.conf.nEpoch, desc="Epoch", leave=True, position=0):
       self._setCriterionEpoch(epoch)
+      self._setOptimizerEpoch(epoch)
+      self._setModelTrainMode(epoch)
       self.epochIdxList.append(iter)
       np.save(self.outDir / "epoch.idx.npy", self.epochIdxList)
 
@@ -727,7 +741,7 @@ class TrainerWpformer(Trainer):
           # Validate
           if i in self.valBatchIdx or iter == 0:
             valBatchLoss, valBatchPck = self._eval(self.valLoader, self.conf.pckThrList)
-            self.model.train()
+            self._setModelTrainMode(epoch)
 
             self.valIdxList.append(iter)
             self.valBatchLossList.append(valBatchLoss)
@@ -1107,6 +1121,58 @@ class TrainerHreformerV6(TrainerWpformer):
 
 class TrainerHreformerV7(TrainerWpformer):
   """Trainer for RMS-limited joint-token graph HreformerV7."""
+  pass
+
+
+class TrainerHreformerV8(TrainerWpformer):
+  """Trainer for V7 with bounded distal-joint coordinate refinement."""
+  pass
+
+
+class TrainerHreformerV9(TrainerWpformer):
+  """Trainer for V7 with softly gated distal-joint refinement."""
+  pass
+
+
+class TrainerHreformerV10(TrainerWpformer):
+  """HreformerV10 trainer with late LR decay and frozen coordinate BN."""
+
+  @staticmethod
+  def _learningRate(epoch: int) -> float:
+    if epoch <= 12:
+      return 1e-3
+    if epoch <= 15:
+      return 3e-4
+    if epoch <= 17:
+      return 1e-4
+    return 3e-5
+
+  def _setOptimizerEpoch(self, epoch: int):
+    learning_rate = self._learningRate(epoch)
+    for param_group in self.optimizer.param_groups:
+      param_group["lr"] = learning_rate
+
+  def _setModelTrainMode(self, epoch: int):
+    super()._setModelTrainMode(epoch)
+    if epoch >= 13:
+      model = self.model.module if isinstance(
+        self.model, torch.nn.DataParallel
+      ) else self.model
+      model.bn1.eval()
+
+
+class TrainerHreformerV10NoDual(TrainerHreformerV10):
+  """V10 schedule for the DualToken ablation."""
+  pass
+
+
+class TrainerHreformerV10NoRAF(TrainerHreformerV10):
+  """V10 schedule for the relative-antenna-fusion ablation."""
+  pass
+
+
+class TrainerHreformerV10NoGraph(TrainerHreformerV10):
+  """V10 schedule for the joint-graph ablation."""
   pass
 
 

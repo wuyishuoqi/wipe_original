@@ -26,6 +26,8 @@ def parseCli():
       "Evtformer", "EvtformerB1", "EvtformerNoDual",
       "EvtformerNoEVT", "EvtformerNoSonnet",
       "EvtformerV4", "EvtformerV7", "EvtformerV8",
+      "HreformerV10", "HreformerV10NoDual",
+      "HreformerV10NoRAF", "HreformerV10NoGraph",
     ],
     help="选择模型架构 (默认: Wpformer)"
   )

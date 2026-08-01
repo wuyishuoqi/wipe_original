@@ -49,11 +49,7 @@ inferConfList: list[config.Infer] = [
   #   weightsFile=r"out/train/model/Evtformer/5/epoch-19/weights.pt",
   #   outDir="infer/evt-v7-desk-chair",
   # ),低验
-  config.Infer(
-    model="Evtformer", fusion="none",
-    weightsFile=r"out/train/model/Evtformer/9/epoch-19/weights.pt",
-    outDir="infer/evt-v8-obstacle",
-  ),
+  # Add an active inference configuration here when inference is needed.
 
   # ===== Wisppn =====
   # config.Infer(
@@ -304,13 +300,13 @@ inferConfList: list[config.Infer] = [
 #     )
 #   )
 
-# HreformerV7 on Obstacle, run 2.
-for i in range(2, 3):
-  model = "HreformerV7"
+# HreformerV10NoDual on Desk, run 0.
+for i in range(0, 1):
+  model = "HreformerV10NoDual"
   trianConfList.append(
     config.Train(
       outDir=f"train/model/{model}/{i}",
-      datasetDir=r"/home/teacher2/文档/obstacle-no-zhedang/",
+      datasetDir=r"/home/teacher2/文档/desk-chair-350-parse-preprocess/",
       nTimestep=9,
       fusion="none",
       model=model,
@@ -449,7 +445,13 @@ if __name__ == "__main__":
   # Trainer = train.TrainerHreformerV4
   # Trainer = train.TrainerHreformerV5
   # Trainer = train.TrainerHreformerV6
-  Trainer = train.TrainerHreformerV7
+  # Trainer = train.TrainerHreformerV7
+  # Trainer = train.TrainerHreformerV8
+  # Trainer = train.TrainerHreformerV9
+  # Trainer = train.TrainerHreformerV10
+  Trainer = train.TrainerHreformerV10NoDual
+  # Trainer = train.TrainerHreformerV10NoRAF
+  # Trainer = train.TrainerHreformerV10NoGraph
   # Trainer = train.TrainerEvtformerV8
   # Trainer = train.TrainerEvtformerB1
 
