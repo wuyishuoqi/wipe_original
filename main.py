@@ -59,7 +59,7 @@ inferConfList: list[config.Infer] = [
   # ),
   # config.Infer(
   #   model="Wisppn", fusion="none",
-  #   weightsFile=r"out/train/model/Wisppn/1/epoch-19/weights.pt",
+  #   weightsFile=r"out/train/model/Wisppn/2/epoch-19/weights.pt",
   #   outDir="infer/wisppn-obstacle",
   # ),
 ]
@@ -300,9 +300,9 @@ inferConfList: list[config.Infer] = [
 #     )
 #   )
 
-# HreformerV10NoDual on Desk, run 0.
-for i in range(0, 1):
-  model = "HreformerV10NoDual"
+# Wpformer on Desk, run 3.
+for i in range(3, 4):
+  model = "Wpformer"
   trianConfList.append(
     config.Train(
       outDir=f"train/model/{model}/{i}",
@@ -426,7 +426,7 @@ if __name__ == "__main__":
   cliArgs = parsecli.parseCli()
 
   # Trainer = train.Trainer
-  # Trainer = train.TrainerWpformer
+  Trainer = train.TrainerWpformer
   # Trainer = train.TrainerWpnet
   # Trainer = train.TrainerEvtformer
   # Trainer = train.TrainerEvtformerNoDual
@@ -449,7 +449,7 @@ if __name__ == "__main__":
   # Trainer = train.TrainerHreformerV8
   # Trainer = train.TrainerHreformerV9
   # Trainer = train.TrainerHreformerV10
-  Trainer = train.TrainerHreformerV10NoDual
+  # Trainer = train.TrainerHreformerV10NoDual
   # Trainer = train.TrainerHreformerV10NoRAF
   # Trainer = train.TrainerHreformerV10NoGraph
   # Trainer = train.TrainerEvtformerV8
